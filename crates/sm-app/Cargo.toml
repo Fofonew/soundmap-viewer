@@ -1,0 +1,32 @@
+[package]
+name = "sm-app"
+description = "SoundMap : application desktop Tauri 2"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+default-run = "sm-app"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+sm-data = { workspace = true }
+sm-geo = { workspace = true }
+sm-core = { workspace = true }
+sm-compute = { workspace = true }
+tauri-plugin-dialog = "2"
+tauri = { version = "2", features = [] }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[features]
+# Activée par `tauri build` : sert l'UI embarquée au lieu du serveur de dev.
+custom-protocol = ["tauri/custom-protocol"]
+
+[lints]
+workspace = true

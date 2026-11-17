@@ -1,0 +1,88 @@
+name: Release
+
+# Build de l'application SoundMap pour Windows et macOS.
+# - Tag `v*` (ex. `git tag v0.1.0 && git push --tags`) : build + release GitHub en brouillon.
+# - Lancement manuel (onglet Actions) : build seul, binaires en artefacts du workflow.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            rust_targets: x86_64-pc-windows-msvc
+            bundles: |
+              target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
+              target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          - name: macOS universel
+            os: macos-latest
+            target: universal-apple-darwin
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            bundles: |
+              target/universal-apple-darwin/release/bundle/dmg/*.dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Dépendances de l'interface
+        run: npm ci
+        working-directory: ui
+
+      # `npm run tauri` = `cd .. && tauri` : la CLI trouve crates/sm-app/tauri.conf.json,
+      # dont le beforeBuildCommand construit l'interface (tsc + vite).
+      - name: Build Tauri
+        run: npm run tauri -- build --target ${{ matrix.target }}
+        working-directory: ui
+
+      - name: Artefacts du workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: soundmap-${{ matrix.target }}
+          path: ${{ matrix.bundles }}
+          if-no-files-found: error
+
+      - name: Release GitHub (brouillon)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: SoundMap ${{ github.ref_name }}
+          files: ${{ matrix.bundles }}
+          body: |
+            Builds Windows (MSI, installateur NSIS) et macOS universel (Intel + Apple Silicon, DMG).
+
+            Les binaires ne sont pas signés :
+            - Windows : SmartScreen → « Informations complémentaires » → « Exécuter quand même ».
+            - macOS : clic droit sur SoundMap.app → « Ouvrir », ou
+              `xattr -dr com.apple.quarantine /Applications/SoundMap.app`.
+
+            Usage de recherche : voir README.md et docs/.

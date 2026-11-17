@@ -1,0 +1,40 @@
+[package]
+name = "sm-compute"
+description = "SoundMap : orchestration des calculs (scène, grille polaire, GFPE, impact, optimisation)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+sm-core = { workspace = true }
+sm-geo = { workspace = true }
+sm-data = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+rayon = { workspace = true }
+contour = { workspace = true }
+png = { workspace = true }
+tiff = { workspace = true }
+futures = { workspace = true }
+rustfft = { workspace = true }
+sm-gpu = { workspace = true, optional = true }
+
+[features]
+default = ["gpu"]
+# GFPE sur GPU (wgpu), bascule automatique sur le CPU.
+gpu = ["dep:sm-gpu"]
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "compute"
+harness = false
+
+[lints]
+workspace = true

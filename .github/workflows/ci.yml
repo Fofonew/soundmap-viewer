@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  libs:
+    name: Bibliothèques (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --exclude sm-app --all-targets -- -D warnings
+      - run: cargo test --workspace --exclude sm-app
+      # sm-core doit rester sans I/O et compilable en wasm32.
+      - run: cargo check -p sm-core --target wasm32-unknown-unknown
+      # Bench smoke : chaque benchmark s'exécute une fois.
+      - run: cargo bench --workspace --exclude sm-app -- --test
+
+  app:
+    name: Application (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci
+        working-directory: ui
+      - run: npm run build
+        working-directory: ui
+      - run: npm test
+        working-directory: ui
+      - run: cargo clippy -p sm-app --all-targets -- -D warnings
+      - run: cargo test -p sm-app
+
+  # Tests d'intégration réseau (services publics réels) : manuels uniquement.
+  live:
+    name: Endpoints en direct
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test -p sm-data -- --ignored

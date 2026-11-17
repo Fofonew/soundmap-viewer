@@ -1,0 +1,8 @@
+/target
+/zones
+/cache
+ui/node_modules
+ui/dist
+crates/sm-app/gen
+*.part
+tests/noisemodelling/out/work

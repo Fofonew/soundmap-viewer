@@ -1,0 +1,71 @@
+[workspace]
+resolver = "3"
+members = ["crates/sm-core", "crates/sm-geo", "crates/sm-data", "crates/sm-compute", "crates/sm-gpu", "crates/sm-app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "warn"
+
+[workspace.dependencies]
+sm-core = { path = "crates/sm-core" }
+sm-geo = { path = "crates/sm-geo" }
+sm-data = { path = "crates/sm-data" }
+sm-compute = { path = "crates/sm-compute" }
+sm-gpu = { path = "crates/sm-gpu" }
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+proj4rs = "0.3"
+memmap2 = "0.9"
+png = "0.18"
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2", "json"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "sync", "time", "io-util"] }
+tokio-util = "0.7"
+governor = "0.10"
+futures = "0.3"
+bytes = "1"
+fastrand = "2"
+sha2 = "0.10"
+flatgeobuf = "6"
+geozero = { version = "0.15", default-features = false, features = ["with-geojson"] }
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support", "plotters"] }
+insta = "1"
+wiremock = "0.6"
+approx = "0.5"
+tempfile = "3"
+num-complex = { version = "0.4", features = ["serde"] }
+rustfft = "6"
+rayon = "1"
+contour = "0.13"
+tiff = "0.11"
+wgpu = "30"
+laz = "0.14"
+pollster = "1"
+bytemuck = { version = "1", features = ["derive", "extern_crate_alloc"] }
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+debug = 1
+
+# Calcul intensif : optimisé même en build de développement (`tauri dev`).
+[profile.dev.package.sm-core]
+opt-level = 3
+[profile.dev.package.sm-geo]
+opt-level = 3
+[profile.dev.package.sm-compute]
+opt-level = 3
+[profile.dev.package.sm-gpu]
+opt-level = 3
+[profile.dev.package.sm-data]
+opt-level = 2
