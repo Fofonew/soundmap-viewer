@@ -33,11 +33,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         r.population,
         r.seconds
     );
+    println!(
+        "praticabilité : {} vérifiés, {} boisés, {} sans accès",
+        r.site_checked, r.rejected_wooded, r.rejected_access
+    );
     for s in &r.spots {
         println!(
             "  {:.5} {:.5} : {:.0} exposés, 1er habitant à {:.0} m, max {:.1} dB(C), pente {:.1} %, alt. {:.0} m",
             s.lat, s.lon, s.exposed, s.nearest_m, s.max_dbc, s.slope_pct, s.elevation_m
         );
+        if let Some(site) = &s.site {
+            println!(
+                "      accès {:?}{} à {:.0} m, déplacé de {:.0} m, boisé {:.0} % dans 150 m",
+                site.access,
+                if site.access_restricted {
+                    " (restreint)"
+                } else {
+                    ""
+                },
+                site.access_m,
+                site.shift_m,
+                site.wooded_pct
+            );
+        }
     }
     Ok(())
 }

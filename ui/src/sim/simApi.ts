@@ -1,4 +1,5 @@
 // Types et appels de la simulation (miroir des structures Rust de sm-compute).
+import { t } from '../i18n';
 import { Channel, invoke } from '@tauri-apps/api/core';
 
 export type SpeakerKind = 'sub' | 'top' | 'line_array';
@@ -6,7 +7,14 @@ export type SpeakerKind = 'sub' | 'top' | 'line_array';
 export type Directivity =
   | { type: 'omni' }
   | { type: 'horn'; h_cov_deg: number; v_cov_deg: number; f_control: number; radius_m: number }
-  | { type: 'line'; n: number; spacing_m: number; h_cov_deg: number };
+  | { type: 'line'; n: number; spacing_m: number; h_cov_deg: number }
+  | { type: 'cardioid'; rear_rejection_db: number };
+
+export interface Dims {
+  width_m: number;
+  height_m: number;
+  depth_m: number;
+}
 
 export interface SpeakerModel {
   id: string;
@@ -18,6 +26,20 @@ export interface SpeakerModel {
   rolloff_db_oct: number;
   directivity: Directivity;
   power_w: number;
+  /** Dimensions pour le dessin 3D (null : valeurs types). */
+  dims?: Dims | null;
+  /** Réponse mesurée [Hz, dB relatifs], remplace f_lo/f_hi si ≥ 2 points. */
+  response?: [number, number][];
+  notes?: string;
+  custom?: boolean;
+}
+
+/** Dimensions de dessin (valeurs types si absentes, comme sm-core). */
+export function dimsOf(m: SpeakerModel): Dims {
+  if (m.dims) return m.dims;
+  if (m.directivity.type === 'line') return { width_m: 1, height_m: m.directivity.n * m.directivity.spacing_m, depth_m: 0.5 };
+  if (m.kind === 'sub') return { width_m: 0.6, height_m: 0.65, depth_m: 0.8 };
+  return { width_m: 0.45, height_m: 0.75, depth_m: 0.45 };
 }
 
 export interface Program {
@@ -242,6 +264,8 @@ export interface BuildingImpact {
   lat: number;
   usage: string;
   inhabitants: number;
+  /** Hors carreau Filosofi peuplé : 2,2 habitants par logement. */
+  inhabitants_estimated?: boolean;
   dwellings: number;
   distance_m: number;
   level_dba: number;
@@ -315,8 +339,12 @@ const withProgress = <T,>(cmd: string, args: Record<string, unknown>, onProgress
 
 export const simApi = {
   catalog: () => invoke<Catalog>('catalog'),
+  saveModel: (model: SpeakerModel) => invoke<void>('save_speaker_model', { model }),
+  deleteModel: (id: string) => invoke<void>('delete_speaker_model', { id }),
   loadScene: (zoneId: string) => invoke<SceneInfo>('load_scene', { zoneId }),
   preview: (project: Project) => invoke<PreviewResult>('compute_preview', { project }),
+  valueAt: (resultId: string, variant: string, metric: string, lon: number, lat: number) =>
+    invoke<number | null>('result_value_at', { resultId, variant, metric, lon, lat }),
   layer: (resultId: string, variant: string, metric: string) =>
     invoke<Layer>('result_layer', { resultId, variant, metric }),
   section: (project: Project, resultId: string | null, lon: number, lat: number) =>
@@ -388,11 +416,11 @@ export function freePartySystem(catalog: Catalog, lon: number, lat: number, az: 
   for (let i = 0; i < 4; i++) {
     const off = (i - 1.5) * 0.8;
     const [lo, la] = offsetLonLat(lon, lat, ay * off, -ax * off);
-    out.push({ id: newId('sub'), name: `Sub ${i + 1}`, model: sub, lon: lo, lat: la, height_m: 0.5, azimuth_deg: az, tilt_deg: 0, delay_ms: 0, polarity: 1, gain_db: 0, muted: false });
+    out.push({ id: newId('sub'), name: `${t('sim.kind.sub')} ${i + 1}`, model: sub, lon: lo, lat: la, height_m: 0.5, azimuth_deg: az, tilt_deg: 0, delay_ms: 0, polarity: 1, gain_db: 0, muted: false });
   }
   [-3, 3].forEach((side, i) => {
     const [lo, la] = offsetLonLat(lon, lat, ay * side + ax * 0.5, -ax * side + ay * 0.5);
-    out.push({ id: newId('top'), name: `Top ${i + 1}`, model: top, lon: lo, lat: la, height_m: 2.5, azimuth_deg: az, tilt_deg: 0, delay_ms: 0, polarity: 1, gain_db: 0, muted: false });
+    out.push({ id: newId('top'), name: `${t('sim.kind.top')} ${i + 1}`, model: top, lon: lo, lat: la, height_m: 2.5, azimuth_deg: az, tilt_deg: 0, delay_ms: 0, polarity: 1, gain_db: 0, muted: false });
   });
   return out;
 }
@@ -401,7 +429,7 @@ export const METRICS: { key: string; label: string }[] = [
   { key: 'A', label: 'dB(A)' },
   { key: 'C', label: 'dB(C)' },
   { key: 'Z', label: 'dB(Z)' },
-  { key: 'oct31', label: '31,5 Hz' },
+  { key: 'oct31', label: '31.5 Hz' },
   { key: 'oct63', label: '63 Hz' },
   { key: 'oct125', label: '125 Hz' },
   { key: 'oct250', label: '250 Hz' },

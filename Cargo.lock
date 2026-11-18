@@ -4571,7 +4571,7 @@ dependencies = [
 
 [[package]]
 name = "sm-app"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "serde",
@@ -4590,7 +4590,7 @@ dependencies = [
 
 [[package]]
 name = "sm-compute"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "contour",
  "criterion",
@@ -4613,7 +4613,7 @@ dependencies = [
 
 [[package]]
 name = "sm-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "approx",
  "criterion",
@@ -4624,7 +4624,7 @@ dependencies = [
 
 [[package]]
 name = "sm-data"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "bytes",
@@ -4636,6 +4636,7 @@ dependencies = [
  "governor",
  "insta",
  "laz",
+ "miniz_oxide 0.8.9",
  "reqwest 0.13.5",
  "serde",
  "serde_json",
@@ -4652,7 +4653,7 @@ dependencies = [
 
 [[package]]
 name = "sm-geo"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "approx",
  "criterion",
@@ -4666,7 +4667,7 @@ dependencies = [
 
 [[package]]
 name = "sm-gpu"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bytemuck",
  "num-complex",

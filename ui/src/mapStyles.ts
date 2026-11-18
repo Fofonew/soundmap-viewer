@@ -2,6 +2,7 @@
 import type { StyleSpecification } from 'maplibre-gl';
 import { PROTOCOL_BASE as B, type OpenZoneResponse } from './api';
 import { boundsAround, circlePolygon, featureCollection, orthoGroups, squarePolygon } from './geo';
+import { ownerFillColor } from './ownerLayer';
 
 export const IGN_ATTRIBUTION = '© IGN – Géoplateforme (Licence Ouverte)';
 
@@ -33,11 +34,29 @@ export function exploreStyle(): StyleSpecification {
         maxzoom: 19,
         attribution: IGN_ATTRIBUTION,
       },
+      names: {
+        type: 'raster',
+        tiles: [`${B}/wmts/names/{z}/{x}/{y}`],
+        tileSize: 256,
+        minzoom: 6,
+        maxzoom: 18,
+        attribution: IGN_ATTRIBUTION,
+      },
       lidar: {
         type: 'vector',
         tiles: [`${B}/tms/lidar-coverage/{z}/{x}/{y}.pbf`],
         minzoom: 10,
         maxzoom: 16,
+      },
+      // Parcellaire cadastral (couche `parcelle` dès le zoom 15), identifiant `idu`
+      // pour les états (catégorie du propriétaire, sélection).
+      pci: {
+        type: 'vector',
+        tiles: [`${B}/tms/pci/{z}/{x}/{y}.pbf`],
+        minzoom: 15,
+        maxzoom: 16,
+        promoteId: { parcelle: 'idu' },
+        attribution: 'Cadastre © DGFiP, IGN',
       },
       zone: { type: 'geojson', data: EMPTY },
     },
@@ -45,6 +64,32 @@ export function exploreStyle(): StyleSpecification {
       { id: 'bg', type: 'background', paint: { 'background-color': '#14161a' } },
       { id: 'ortho', type: 'raster', source: 'ortho' },
       { id: 'plan', type: 'raster', source: 'plan', layout: { visibility: 'none' } },
+      {
+        id: 'pci-fill',
+        type: 'fill',
+        source: 'pci',
+        'source-layer': 'parcelle',
+        minzoom: 15,
+        layout: { visibility: 'none' },
+        paint: {
+          'fill-color': ownerFillColor(),
+          'fill-opacity': ['case', ['boolean', ['feature-state', 'sel'], false], 0.7, 0.42],
+        },
+      },
+      {
+        id: 'pci-line',
+        type: 'line',
+        source: 'pci',
+        'source-layer': 'parcelle',
+        minzoom: 15,
+        layout: { visibility: 'none' },
+        paint: {
+          'line-color': ['case', ['boolean', ['feature-state', 'sel'], false], '#ff7a1a', '#ffffff'],
+          'line-width': ['case', ['boolean', ['feature-state', 'sel'], false], 3, 0.7],
+          'line-opacity': ['case', ['boolean', ['feature-state', 'sel'], false], 1, 0.55],
+        },
+      },
+      { id: 'names', type: 'raster', source: 'names', minzoom: 6 },
       {
         id: 'lidar-fill',
         type: 'fill',

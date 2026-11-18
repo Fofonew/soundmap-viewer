@@ -23,6 +23,7 @@ pub mod project;
 pub mod receiver;
 pub mod render;
 pub mod scene;
+pub mod site;
 pub mod sizing;
 pub mod spots;
 pub mod valley;

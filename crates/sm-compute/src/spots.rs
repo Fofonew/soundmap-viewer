@@ -10,7 +10,12 @@
 //! Score : habitants exposés au-delà du seuil, puis distance au premier
 //! habitant ; pente maximale imposée. C'est un criblage : la zone retenue doit
 //! ensuite être téléchargée et calculée finement.
+//!
+//! Praticabilité (`site`) : les meilleurs candidats sont vérifiés dans l'ordre
+//! sur la BD TOPO locale (végétation, routes) ; le spot est déplacé (≤ 250 m)
+//! vers une clairière desservie, ou écarté s'il n'y en a pas.
 
+use crate::site::{Reject, Site, SiteData, SiteSpec, best_site};
 use crate::{CancelFlag, ComputeError, ProgressCounter};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -24,7 +29,9 @@ pub struct SpotSpec {
     pub radius_m: f64,
     /// Pas de la grille de candidats (m).
     pub grid_m: f64,
-    /// Niveau du système ramené à 1 m (dB(C)) : 4 subs 18" ≈ 125.
+    /// Niveau continu de tout le système dans le grave, ramené à 1 m en champ
+    /// libre (dB(C)) ; ce n'est pas la sensibilité. Sub 18" ≈ 119, 2 subs ≈ 125,
+    /// 4 subs ≈ 131 (subs groupés : +6 dB par doublement).
     pub source_dbc_1m: f64,
     /// Seuil d'exposition chez les habitants (dB(C)).
     pub threshold_dbc: f64,
@@ -32,7 +39,21 @@ pub struct SpotSpec {
     pub max_slope_pct: f64,
     /// Distance d'influence considérée (m).
     pub influence_m: f64,
+    /// Vérifier clairière et accès sur la BD TOPO.
+    #[serde(default = "yes")]
+    pub check_site: bool,
+    #[serde(default)]
+    pub site: SiteSpec,
 }
+
+fn yes() -> bool {
+    true
+}
+
+/// Candidats vérifiés au plus (requêtes WFS : 2 par candidat).
+const MAX_SITE_CHECKS: usize = 80;
+/// Candidats vérifiés en parallèle.
+const SITE_BATCH: usize = 6;
 
 impl Default for SpotSpec {
     fn default() -> Self {
@@ -43,6 +64,8 @@ impl Default for SpotSpec {
             threshold_dbc: 50.0,
             max_slope_pct: 8.0,
             influence_m: 6_000.0,
+            check_site: true,
+            site: SiteSpec::default(),
         }
     }
 }
@@ -59,6 +82,9 @@ pub struct Spot {
     pub max_dbc: f64,
     pub slope_pct: f64,
     pub elevation_m: f64,
+    /// Clairière et accès (spots vérifiés seulement).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub site: Option<Site>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -70,6 +96,10 @@ pub struct SpotReport {
     pub populated_cells: usize,
     pub population: f64,
     pub seconds: f64,
+    /// Candidats vérifiés sur la BD TOPO, écartés car boisés, sans accès.
+    pub site_checked: usize,
+    pub rejected_wooded: usize,
+    pub rejected_access: usize,
 }
 
 struct Dem {
@@ -267,6 +297,7 @@ pub async fn find_spots(
                 max_dbc: if max_l.is_finite() { max_l } else { 0.0 },
                 slope_pct: slope,
                 elevation_m: z,
+                site: None,
             })
         })
         .collect();
@@ -282,19 +313,80 @@ pub async fn find_spots(
             .then(a.slope_pct.total_cmp(&b.slope_pct))
     });
     // Meilleurs spots, séparés d'au moins 2 km.
-    let mut spots: Vec<Spot> = Vec::new();
-    for c in &candidates {
-        let far = spots.iter().all(|s| {
+    let far_from = |spots: &[Spot], c: &Spot| {
+        spots.iter().all(|s| {
             let (dx, dy) = (
                 (s.lon - c.lon) * 111_320.0 * c.lat.to_radians().cos(),
                 (s.lat - c.lat) * 110_540.0,
             );
             dx.hypot(dy) >= 2_000.0
-        });
-        if far {
-            spots.push(c.clone());
-            if spots.len() == 10 {
+        })
+    };
+    let mut spots: Vec<Spot> = Vec::new();
+    let (mut checked, mut wooded, mut no_access) = (0, 0, 0);
+    let site_spec = spec.site.clamped();
+    if spec.check_site {
+        progress.set_total(3 + MAX_SITE_CHECKS as u64);
+        let mut queue = candidates.iter();
+        'outer: while spots.len() < 10 && checked < MAX_SITE_CHECKS {
+            let batch: Vec<&Spot> = queue
+                .by_ref()
+                .filter(|c| far_from(&spots, c))
+                .take(SITE_BATCH.min(MAX_SITE_CHECKS - checked))
+                .collect();
+            if batch.is_empty() {
                 break;
+            }
+            let checks = futures::future::join_all(
+                batch
+                    .iter()
+                    .map(|c| check_site(client, &proj, c, &site_spec, &token)),
+            )
+            .await;
+            for (c, res) in batch.into_iter().zip(checks) {
+                checked += 1;
+                progress.inc(1);
+                if cancel.is_cancelled() {
+                    return Err(ComputeError::Cancelled);
+                }
+                match res {
+                    Ok(Ok(site)) => {
+                        let Ok((lon, lat)) = proj.to_wgs84(site.x, site.y) else {
+                            continue;
+                        };
+                        let s = Spot {
+                            lon,
+                            lat,
+                            site: Some(site),
+                            ..c.clone()
+                        };
+                        if far_from(&spots, &s) {
+                            spots.push(s);
+                            if spots.len() == 10 {
+                                break 'outer;
+                            }
+                        }
+                    }
+                    Ok(Err(Reject::Wooded)) => wooded += 1,
+                    Ok(Err(Reject::NoAccess)) => no_access += 1,
+                    Err(e) => tracing::warn!(error = %e, "vérification du site impossible"),
+                }
+            }
+        }
+        tracing::info!(
+            checked,
+            wooded,
+            no_access,
+            retenus = spots.len(),
+            "praticabilité"
+        );
+    } else {
+        for c in &candidates {
+            if far_from(&spots, c) {
+                spots.push(c.clone());
+                if spots.len() == 10 {
+                    break;
+                }
             }
         }
     }
@@ -304,7 +396,31 @@ pub async fn find_spots(
         population: cells.iter().map(|c| c.2).sum(),
         candidates,
         seconds: t0.elapsed().as_secs_f64(),
+        site_checked: checked,
+        rejected_wooded: wooded,
+        rejected_access: no_access,
     })
+}
+
+/// Vérifie la praticabilité d'un candidat sur la BD TOPO (végétation, routes).
+async fn check_site(
+    client: &GeoClient,
+    proj: &Lambert93,
+    c: &Spot,
+    spec: &SiteSpec,
+    token: &CancellationToken,
+) -> Result<Result<Site, Reject>, ComputeError> {
+    let (x, y) = proj.from_wgs84(c.lon, c.lat)?;
+    let m = spec.search_m + spec.max_access_m + spec.clear_radius_m;
+    let bbox = BboxL93::new(x - m, y - m, x + m, y + m);
+    use sm_data::wfs::{get_all, layers};
+    let (veg, roads) = futures::future::try_join(
+        get_all(client, layers::VEGETATION, &bbox, token),
+        get_all(client, layers::ROUTE, &bbox, token),
+    )
+    .await?;
+    let data = SiteData::from_features(&veg, &roads, spec);
+    Ok(best_site(&data, x, y, spec))
 }
 
 #[cfg(test)]

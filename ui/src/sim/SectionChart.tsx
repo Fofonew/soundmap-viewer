@@ -1,7 +1,9 @@
+import { useT } from '../i18n';
 import type { Section } from './simApi';
 
 /** Coupe du terrain : sol, bâti, végétation, ligne de visée, niveaux par bande. */
 export function SectionChart({ s }: { s: Section }) {
+  const { t, num } = useT();
   const W = 300;
   const H = 140;
   const pts = s.samples;
@@ -32,13 +34,13 @@ export function SectionChart({ s }: { s: Section }) {
         <strong>
           {s.dba.toFixed(1)} dB(A) · {s.dbc.toFixed(1)} dB(C)
         </strong>{' '}
-        à {s.distance.toFixed(0)} m
+        {t('sim.chart.at', { m: Math.round(s.distance) })}
       </p>
       <p className="muted small">
-        {s.info.n_edges > 0 ? `Vue obstruée (${s.info.n_edges} arête${s.info.n_edges > 1 ? 's' : ''}, δ = ${s.info.delta.toFixed(2)} m)` : 'Vue dégagée'} ·
-        feuillage {s.info.foliage_m.toFixed(0)} m · σ sol {s.info.sigma_kpa.toFixed(0)} kPa·s/m²
+        {s.info.n_edges > 0 ? t('sim.chart.blocked', { count: s.info.n_edges, delta: num(s.info.delta, 2) }) : t('sim.chart.clear')} ·{' '}
+        {t('sim.chart.foliage', { m: Math.round(s.info.foliage_m), sigma: Math.round(s.info.sigma_kpa) })}
       </p>
-      <div className="bands" aria-label="Niveaux par bande">
+      <div className="bands" aria-label={t('sim.chart.bands')}>
         {s.bands.map(([f, l]) => (
           <div key={f} title={`${f} Hz : ${l.toFixed(1)} dB`}>
             <div style={{ height: `${Math.max(2, (100 * (l - (maxL - 60))) / 60)}%` }} />

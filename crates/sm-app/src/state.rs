@@ -12,11 +12,15 @@ pub struct AppState {
     pub client: GeoClient,
     pub cache: TileCache,
     pub zones_dir: PathBuf,
+    /// Dossier de données de l'application (bibliothèque d'enceintes…).
+    pub data_dir: PathBuf,
     /// `SOUNDMAP_OFFLINE=1` : le proxy ne sert que le cache (test hors ligne).
     pub offline: bool,
     pub open_zones: Mutex<HashMap<String, Arc<OpenZone>>>,
     pub downloads: Mutex<HashMap<String, CancellationToken>>,
     pub sim: crate::sim::SimStore,
+    /// Propriétaires personnes morales (DGFiP), indexés par département.
+    pub pm: Mutex<HashMap<String, Arc<sm_data::cadastre::PmIndex>>>,
 }
 
 impl AppState {
@@ -32,10 +36,12 @@ impl AppState {
             client: GeoClient::public()?,
             cache: TileCache::new(cache_dir),
             zones_dir: std::path::absolute(zones_dir)?,
+            data_dir: app_data.to_path_buf(),
             offline: std::env::var("SOUNDMAP_OFFLINE").is_ok_and(|v| v == "1"),
             open_zones: Mutex::new(HashMap::new()),
             downloads: Mutex::new(HashMap::new()),
             sim: crate::sim::SimStore::default(),
+            pm: Mutex::new(HashMap::new()),
         })
     }
 

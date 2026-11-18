@@ -7,12 +7,14 @@
 pub mod altimetrie;
 pub mod arome_grib;
 pub mod brgm;
+pub mod cadastre;
 pub mod copc;
 pub mod geocode;
 pub mod http;
 pub mod lidar_index;
 pub mod openmeteo;
 pub mod pack;
+pub mod police;
 pub mod tile_cache;
 pub mod tms;
 pub mod wfs;

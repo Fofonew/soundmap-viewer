@@ -133,6 +133,9 @@ pub struct BuildingImpact {
     pub lat: f64,
     pub usage: String,
     pub inhabitants: f64,
+    /// Habitants estimés (hors carreau Filosofi peuplé).
+    #[serde(default)]
+    pub inhabitants_estimated: bool,
     pub dwellings: u32,
     pub distance_m: f64,
     /// Façade la plus exposée.
@@ -281,6 +284,7 @@ pub fn evaluate(
                 lat,
                 usage: b.usage.clone(),
                 inhabitants: b.inhabitants,
+                inhabitants_estimated: b.inhabitants_estimated,
                 dwellings: b.dwellings,
                 distance_m: (b.centroid.0 - scene.origin.0).hypot(b.centroid.1 - scene.origin.1),
                 level_dba: la,

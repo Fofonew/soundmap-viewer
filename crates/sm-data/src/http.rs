@@ -24,10 +24,12 @@ pub enum Service {
     OpenMeteo,
     AromeS3,
     Brgm,
+    /// data.economie.gouv.fr (fichiers DGFiP des personnes morales).
+    Dgfip,
 }
 
 impl Service {
-    pub const ALL: [Service; 10] = [
+    pub const ALL: [Service; 11] = [
         Service::WmsR,
         Service::Wmts,
         Service::Tms,
@@ -38,6 +40,7 @@ impl Service {
         Service::OpenMeteo,
         Service::AromeS3,
         Service::Brgm,
+        Service::Dgfip,
     ];
 
     /// (requêtes/s, requêtes simultanées). Le WMS-R annonce ~40 req/s/IP :
@@ -53,6 +56,7 @@ impl Service {
             Service::OpenMeteo => (2, 2),
             Service::AromeS3 => (5, 2),
             Service::Brgm => (5, 2),
+            Service::Dgfip => (2, 2),
         }
     }
 }

@@ -35,7 +35,18 @@ pub const OCSGE_COUVERTURE: TmsLayer = TmsLayer {
     max_zoom: 16,
 };
 
-pub const ALL: [TmsLayer; 2] = [LIDAR_HD_COVERAGE, OCSGE_COUVERTURE];
+/// Parcellaire cadastral (PCI) : couche `parcelle` à partir du zoom 15
+/// (attributs `idu`, `code_dep`, `code_com`, `com_abs`, `section`, `numero`,
+/// `contenance`, `nom_com` ; `metadata.json` lu le 18/11/2026).
+pub const PCI_PARCELLES: TmsLayer = TmsLayer {
+    id: "pci",
+    name: "PCI",
+    source_layer: "parcelle",
+    min_zoom: 15,
+    max_zoom: 16,
+};
+
+pub const ALL: [TmsLayer; 3] = [LIDAR_HD_COVERAGE, OCSGE_COUVERTURE, PCI_PARCELLES];
 
 pub fn layer_by_id(id: &str) -> Option<TmsLayer> {
     ALL.iter().copied().find(|l| l.id == id)

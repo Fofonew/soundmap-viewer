@@ -125,8 +125,14 @@ pub struct Building {
     pub ground: f64,
     /// Habitants estimés (Filosofi réparti au prorata des logements).
     pub inhabitants: f64,
+    /// Habitation hors carreau Filosofi peuplé (résidence secondaire, carreau
+    /// absent) : habitants estimés à `HOUSEHOLD_SIZE` par logement.
+    pub inhabitants_estimated: bool,
     pub usage: String,
 }
+
+/// Taille moyenne des ménages (INSEE, France, ≈ 2,2 personnes).
+pub const HOUSEHOLD_SIZE: f64 = 2.2;
 
 #[derive(Debug, Clone)]
 pub struct SensitivePlace {
@@ -334,6 +340,7 @@ impl Scene {
                 rings,
                 height,
                 inhabitants: 0.0,
+                inhabitants_estimated: false,
             });
         }
 
@@ -359,6 +366,16 @@ impl Scene {
             for i in inside {
                 buildings[i].inhabitants += ind * f64::from(buildings[i].dwellings.max(1)) / weight;
             }
+        }
+
+        // Habitations sans habitant fiscal (résidences secondaires, carreaux
+        // absents) : occupées potentiellement le soir de la fête.
+        for b in buildings
+            .iter_mut()
+            .filter(|b| b.residential && b.inhabitants <= 0.0)
+        {
+            b.inhabitants = HOUSEHOLD_SIZE * f64::from(b.dwellings.max(1));
+            b.inhabitants_estimated = true;
         }
 
         // Occupation du sol.

@@ -17,16 +17,28 @@ npm run tauri dev
 Les zones sont stockées dans `SOUNDMAP_ZONES_DIR`, ou par défaut dans le dossier de données de l'app (`%APPDATA%\fr.soundmap.viewer\zones`). Le cache de tuiles suit le même principe avec `SOUNDMAP_CACHE_DIR`. `SOUNDMAP_OFFLINE=1` coupe le réseau du proxy de tuiles.
 
 Utilisation :
-1. **Exploration** : vue satellite (ou Plan IGN), recherche d'adresse, emprises des dalles LiDAR HD.
-   **Assistant de spot** : criblage sur 10 à 30 km (relief, population, écran du relief à 63 Hz).
-   Il classe les spots plats par habitants exposés ; un clic place la sono.
+1. **Exploration** : vue satellite (ou Plan IGN) avec noms des lieux, recherche d'adresse,
+   emprises des dalles LiDAR HD, gendarmeries et commissariats les plus proches.
+   - **Assistant de spot** : criblage sur 10 à 30 km (relief, population, écran du relief à
+     63 Hz), puis vérification du terrain sur la BD TOPO. Les critères se règlent : rayon de
+     la clairière, distance d'accès, voies admises (route, route empierrée, chemin, accès
+     restreint), vignes, vergers, landes. Les spots sont classés par habitants exposés ; un
+     clic place la sono.
+   - **Calques** (panneau flottant sur la carte) : fond, noms de lieux, propriétés,
+     gendarmeries, dalles LiDAR. Avec « Propriétés », les parcelles sont colorées par
+     catégorie de propriétaire (zoom ≥ 15) ; un clic ouvre la fiche de la parcelle et entoure
+     toute la propriété. Propriétaire connu s'il s'agit d'une personne morale (DGFiP).
 2. **Zone de travail** : « Placer la sono », choisir le rayon (estimation du volume et du temps),
    « Valider et télécharger » (annulable, reprenable).
 3. **Vue 3D** (hors ligne), onglets :
-   - **Sono** : placer les enceintes (presets ou saisie manuelle), les glisser sur la carte, régler
-     azimut, hauteur, retard, polarité et gain, dessiner le dancefloor ;
+   - **Sono** : placer les enceintes, les glisser sur la carte, orienter tout le système avec la
+     poignée ⟳ du stack, régler azimut, hauteur, retard, polarité et gain, dessiner le
+     dancefloor. **Mes enceintes** : saisie de vos subs et têtes depuis la fiche technique
+     (SPL crête ou continu, demi-espace, coupures à −3 ou −10 dB, cardioïde, réponse mesurée,
+     dimensions pour le dessin 3D) ;
    - **Carte** : niveaux dB(A), dB(C), dB(Z) ou par octave, recalculés en direct (méthode
-     d'ingénierie, < 300 ms), isophones, coupe du terrain en un point ;
+     d'ingénierie, < 300 ms), légende, niveau et type de bâtiment au survol, isophones, coupe
+     du terrain en un point ;
    - **Carte**, outil coupe : **Écouter ce point** joue deux extraits (dancefloor, et chez le
      riverain avec le bruit résiduel) ;
    - **Basses fréq.** : calcul GFPE (sur GPU s'il y en a un, sinon CPU) sur 4 scénarios météo
@@ -70,3 +82,11 @@ cargo check -p sm-core --target wasm32-unknown-unknown
 cargo bench -p sm-geo -p sm-data
 cd ui && npm run build && npm test
 ```
+
+## Traductions
+
+L'interface est traduite par fichiers JSON dans `ui/src/locales/` (`fr.json` sert de
+référence, `en.json` est fourni). Pour ajouter une langue, copier `fr.json` en `<code>.json`
+(ex. `de.json`), renseigner `_meta.name` et traduire les valeurs : la langue apparaît dans le
+sélecteur. Format compatible i18next (`{{var}}`, pluriels `_one` / `_other`). `npm test`
+vérifie que chaque langue a toutes les clés. Voir `docs/ADR/0012-interface-identite-traductions.md`.

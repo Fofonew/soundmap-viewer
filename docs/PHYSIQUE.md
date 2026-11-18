@@ -219,6 +219,18 @@ Tests : émergence (+3,01 dB à niveaux égaux), inverse exact, spectre résidue
 - **Auralisation** (`auralize.rs`) : égaliseur à phase nulle par FFT, gain en dB interpolé sur
   log f entre les centres de bande ; bruit rose (filtre de P. Kellet) au niveau résiduel relatif.
 
-## 14. Terrain 3D (non acoustique)
+## 14. Modèles d'enceintes saisis (ADR 0011)
+- **Niveau du modèle :** SPL max continu, champ libre, par octave.
+  - Depuis une fiche technique : L_oct = L − 6·[crête] − 6·[demi-espace] − 10·lg(n), où n est
+    le nombre d'octaves de la bande passante (≥ 1).
+  - Le −6 dB de crête correspond au facteur de crête du bruit rose. Le −6 dB de demi-espace
+    vient de ce que le gain de sol est recalculé par la propagation.
+- **Coupures données à −10 dB :** f₋₃ = f₋₁₀·2^(±7/pente).
+- **Réponse mesurée :** interpolation linéaire en dB sur log f, prolongée par la pente hors
+  des points.
+- **Cardioïde du premier ordre :** p(θ) = A + B·cos θ, A + B = 1, A − B = 10^(−R/20).
+  Exemple : R = 20 dB donne −5,2 dB sur le côté et −20 dB à l'arrière.
+
+## 15. Terrain 3D (non acoustique)
 
 Terrarium : `h = R·256 + G + B/256 − 32768`.

@@ -142,3 +142,42 @@ Des RRP (Référentiels Régionaux Pédologiques) commencent à apparaître en T
 | Altimétrie | Réponse `{"elevations":[{"lon","lat","z","acc"}…]}` | `sm_data::altimetrie` |
 | AROME S3 | Runs `pnt/AAAA-MM-JJTHH:00:00Z/` toutes les 3 h ; tranches `00H06H, 07H12H, 13H18H, 19H24H, … 49H51H` | `sm_data::arome_grib` |
 | Débit global | Pack de 5 km : **260 Mo en 244 s ≈ 1,1 Mo/s** effectif (48 requêtes en vol). Une requête isolée : ~2 Mo/s. Avec un timeout total de 60 s, les gros blocs WMS-R expiraient. | timeout total 300 s + timeout d'inactivité 30 s ; débit de 1,5 Mo/s supposé pour l'estimation |
+
+## 10. Ajouts du 17/11/2026 (soir) : toponymes, cadastre, gendarmeries
+
+- **Toponymes :** WMTS `GEOGRAPHICALNAMES.NAMES`, style `normal`, PNG transparent.
+  - Matrice **`PM_6_18`** : `PM_0_18` et `PM_0_19` renvoient 400.
+  - Une tuile vide renvoie 404.
+- **Parcelles :** WFS `CADASTRALPARCELS.PARCELLAIRE_EXPRESS:parcelle`.
+  - Attributs : `idu`, `code_dep`, `code_com`, `com_abs`, `section` (ex. `0C`), `numero`
+    (`0579`), `contenance` (m²), `nom_com`, `code_insee`.
+- **Forêts publiques :** WFS `BDTOPO_V3:foret_publique`, attributs `toponyme` (« Forêt Communale
+  de … ») et `nature`.
+- **Gendarmeries et commissariats :** WFS `BDTOPO_V3:zone_d_activite_ou_d_interet` avec
+  `CQL_FILTER=nature IN ('Gendarmerie','Poste ou hôtel de police') AND BBOX(geometrie,…,'EPSG:2154')`.
+  Le paramètre `BBOX` classique n'est pas combinable avec `CQL_FILTER`.
+- **Propriétaires personnes morales (DGFiP) :**
+  - URL : `https://data.economie.gouv.fr/api/v2/catalog/datasets/fichiers-des-locaux-et-des-parcelles-des-personnes-morales/attachments/<fichier>`.
+  - Deux zips de parcelles 2024 : `fichier_des_parcelles_situation_2024_dpts_01_a_60_zip`
+    (250 305 349 o) et `fichiers_des_parcelles_situation_2024_dpts_61_a_976_zip`.
+  - Les requêtes HTTP Range sont acceptées, y compris la plage suffixe `bytes=-N`.
+  - Un CSV par département et par direction : `PM_24_NB_<dep><direction>.csv`, UTF-8,
+    séparateur `;`, 24 colonnes, environ 3 Mo compressé.
+- **BD TOPO routes :** `troncon_de_route.nature` (Route à 1 chaussée, Route empierrée, Chemin,
+  Sentier…) et `acces_vehicule_leger` (Libre, Physiquement impossible, Restreint aux ayants
+  droit…).
+- **BD TOPO végétation :** `zone_de_vegetation.nature` (Bois, Forêt fermée de feuillus, Forêt
+  ouverte, Haie, Lande ligneuse…).
+
+## 11. Ajouts du 18/11/2026 : carte des propriétés
+
+- **Parcellaire en tuiles vectorielles :** TMS `https://data.geopf.fr/tms/1.0.0/PCI/{z}/{x}/{y}.pbf`
+  (`metadata.json` : « Parcellaire cadastral édition 2026-06-01 »).
+  - Couche `parcelle` à partir du zoom 15 (tuiles jusqu'à 19 ; on s'arrête à 16 et on
+    sur-zoome). Mêmes attributs que le WFS : `idu`, `code_dep`, `code_com`, `com_abs`,
+    `section`, `numero`, `contenance`, `nom_com`, `code_insee`.
+  - `idu` sert d'identifiant MapLibre (`promoteId`) pour colorer par propriétaire.
+- **DGFiP, colonne « Groupe personne » :** 1 État, 2 région, 3 département, 4 commune (et
+  sections, forme `COLL`), 5 office HLM, 9 établissement public, 0 autre personne morale.
+  - Formes abrégées les plus fréquentes dans l'Aveyron : COM, SCI, AUPM, GFA, COLL, SA, ETAT,
+    SC, SAS, DEPT, GFO.

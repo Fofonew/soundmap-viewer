@@ -1,5 +1,6 @@
 // Accès au backend Rust : commandes IPC et URL du protocole soundmap://.
 import { Channel, invoke } from '@tauri-apps/api/core';
+import { num, t } from './i18n';
 
 /** Base du protocole personnalisé (Windows/Android : http://soundmap.localhost). */
 export const PROTOCOL_BASE = /Windows|Android/i.test(navigator.userAgent)
@@ -126,6 +127,48 @@ export interface SpotSpec {
   threshold_dbc: number;
   max_slope_pct: number;
   influence_m: number;
+  /** Vérifier clairière et accès carrossable (BD TOPO). */
+  check_site?: boolean;
+  site?: SiteSpec;
+}
+
+/** Critères du site (sm_compute::site::SiteSpec). */
+export interface SiteSpec {
+  clear_radius_m: number;
+  max_access_m: number;
+  search_m: number;
+  access_route: boolean;
+  access_piste: boolean;
+  access_chemin: boolean;
+  allow_restricted: boolean;
+  block_crops: boolean;
+  block_scrub: boolean;
+  block_open_forest: boolean;
+}
+
+export const DEFAULT_SITE: SiteSpec = {
+  clear_radius_m: 50,
+  max_access_m: 300,
+  search_m: 250,
+  access_route: true,
+  access_piste: true,
+  access_chemin: true,
+  allow_restricted: true,
+  block_crops: true,
+  block_scrub: true,
+  block_open_forest: true,
+};
+
+export type AccessKind = 'route' | 'piste' | 'chemin';
+
+export interface Site {
+  x: number;
+  y: number;
+  shift_m: number;
+  access: AccessKind;
+  access_restricted: boolean;
+  access_m: number;
+  wooded_pct: number;
 }
 
 export interface Spot {
@@ -136,6 +179,7 @@ export interface Spot {
   max_dbc: number;
   slope_pct: number;
   elevation_m: number;
+  site?: Site;
 }
 
 export interface SpotReport {
@@ -144,6 +188,9 @@ export interface SpotReport {
   populated_cells: number;
   population: number;
   seconds: number;
+  site_checked: number;
+  rejected_wooded: number;
+  rejected_access: number;
 }
 
 export interface SpotProgress {
@@ -153,7 +200,64 @@ export interface SpotProgress {
   message: string;
 }
 
+export interface PoliceNear {
+  name: string;
+  nature: string;
+  lon: number;
+  lat: number;
+  distance_m: number;
+}
+
+export type OwnerCategory = 'commune' | 'section' | 'etat' | 'public' | 'agricole' | 'forestier' | 'societe';
+
+/** Attributs d'une parcelle de tuile PCI envoyés pour la jointure DGFiP. */
+export interface ParcelRef {
+  idu: string;
+  code_dep: string;
+  code_com: string;
+  com_abs: string;
+  section: string;
+  numero: string;
+}
+
+export interface ParcelOwner {
+  idu: string;
+  category: OwnerCategory;
+  owner_id: string;
+  name: string;
+  forme: string;
+  droit: string;
+}
+
+export interface OwnerRight {
+  droit: string;
+  denomination: string;
+  forme: string;
+  siren: string;
+  culture: string;
+}
+
+export interface ParcelInfo {
+  parcel: {
+    idu: string;
+    commune: string;
+    code_insee: string;
+    section: string;
+    numero: string;
+    contenance_m2: number;
+    ring: [number, number][];
+  } | null;
+  owners: OwnerRight[];
+  owners_error: string | null;
+  owners_year: number;
+  public_forest: string | null;
+  cadastre_url: string | null;
+}
+
 export const api = {
+  parcelInfo: (lon: number, lat: number) => invoke<ParcelInfo>('parcel_info', { lon, lat }),
+  parcelOwners: (parcels: ParcelRef[]) => invoke<ParcelOwner[]>('parcel_owners', { parcels }),
+  nearbyPolice: (lon: number, lat: number, radiusM: number) => invoke<PoliceNear[]>('nearby_police', { lon, lat, radiusM }),
   findSpots: (lon: number, lat: number, spec: SpotSpec, onProgress: (p: SpotProgress) => void) => {
     const ch = new Channel<SpotProgress>();
     ch.onmessage = onProgress;
@@ -181,9 +285,9 @@ export const api = {
 };
 
 export function fmtBytes(b: number): string {
-  if (b >= 1e9) return `${(b / 1e9).toFixed(2)} Go`;
-  if (b >= 1e6) return `${(b / 1e6).toFixed(b >= 1e8 ? 0 : 1)} Mo`;
-  return `${Math.max(1, Math.round(b / 1e3))} ko`;
+  if (b >= 1e9) return `${num(b / 1e9, 2)} ${t('units.gb')}`;
+  if (b >= 1e6) return `${num(b / 1e6, b >= 1e8 ? 0 : 1)} ${t('units.mb')}`;
+  return `${Math.max(1, Math.round(b / 1e3))} ${t('units.kb')}`;
 }
 
 export function fmtDuration(s: number): string {

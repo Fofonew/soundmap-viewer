@@ -123,12 +123,66 @@ pub struct Catalog {
     programs: Vec<Program>,
 }
 
+/// Bibliothèque « Mes enceintes » (JSON dans le dossier de données).
+fn custom_speakers_path(state: &AppState) -> std::path::PathBuf {
+    state.data_dir.join("speakers.json")
+}
+
+fn load_custom_speakers(state: &AppState) -> Vec<SpeakerModel> {
+    std::fs::read(custom_speakers_path(state))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+fn store_custom_speakers(state: &AppState, list: &[SpeakerModel]) -> anyhow::Result<()> {
+    let p = custom_speakers_path(state);
+    if let Some(d) = p.parent() {
+        std::fs::create_dir_all(d)?;
+    }
+    let tmp = p.with_extension("json.part");
+    std::fs::write(&tmp, serde_json::to_vec_pretty(list)?)?;
+    std::fs::rename(tmp, p)?;
+    Ok(())
+}
+
 #[tauri::command]
-pub fn catalog() -> Catalog {
+pub fn catalog(state: State<'_, AppState>) -> Catalog {
+    let mut speakers = presets();
+    speakers.extend(load_custom_speakers(&state));
     Catalog {
-        speakers: presets(),
+        speakers,
         programs: programs(),
     }
+}
+
+/// Ajoute ou remplace (même `id`) un modèle de la bibliothèque.
+#[tauri::command]
+pub fn save_speaker_model(state: State<'_, AppState>, mut model: SpeakerModel) -> CmdResult<()> {
+    if presets().iter().any(|p| p.id == model.id) {
+        return Err("identifiant réservé à un preset".into());
+    }
+    if !(model.max_spl_1m.is_finite() && model.f_lo > 0.0 && model.f_hi > model.f_lo) {
+        return Err("SPL max, f basse et f haute invalides".into());
+    }
+    model.custom = true;
+    model
+        .response
+        .retain(|p| p[0] > 0.0 && p[0].is_finite() && p[1].is_finite());
+    model.response.sort_by(|a, b| a[0].total_cmp(&b[0]));
+    let mut list = load_custom_speakers(&state);
+    match list.iter_mut().find(|m| m.id == model.id) {
+        Some(m) => *m = model,
+        None => list.push(model),
+    }
+    store_custom_speakers(&state, &list).map_err(err)
+}
+
+#[tauri::command]
+pub fn delete_speaker_model(state: State<'_, AppState>, id: String) -> CmdResult<()> {
+    let mut list = load_custom_speakers(&state);
+    list.retain(|m| m.id != id);
+    store_custom_speakers(&state, &list).map_err(err)
 }
 
 #[derive(Serialize)]
@@ -275,12 +329,13 @@ pub async fn find_spots(
                     "relief (RGE ALTI 100 m)",
                     "population (Filosofi)",
                     "criblage des spots",
+                    "clairière et accès (BD TOPO)",
                 ];
                 let _ = ch.send(JobProgress {
                     stage: "spots".into(),
                     done: snap.done,
                     total: snap.total,
-                    message: msg[(snap.done as usize).min(2)].into(),
+                    message: msg[(snap.done as usize).min(3)].into(),
                 });
                 tokio::time::sleep(std::time::Duration::from_millis(250)).await;
             }
@@ -523,6 +578,25 @@ pub async fn result_layer(
         variants,
         method: rs.method.clone(),
     })
+}
+
+/// Niveau affiché (dB) en un point de la carte, pour le survol.
+#[tauri::command]
+pub async fn result_value_at(
+    state: State<'_, AppState>,
+    result_id: String,
+    variant: String,
+    metric: String,
+    lon: f64,
+    lat: f64,
+) -> CmdResult<Option<f64>> {
+    let rs = result(&state, &result_id).map_err(err)?;
+    let s = sim(&state, &rs.zone_id).map_err(err)?;
+    let r = raster_of(&state, &result_id, &variant, &metric).map_err(err)?;
+    Ok(s.scene
+        .lonlat_to_local(lon, lat)
+        .and_then(|(x, y)| r.get_local(x, y))
+        .map(f64::from))
 }
 
 #[tauri::command]

@@ -66,7 +66,25 @@ pub const COSIA: WmtsLayer = WmtsLayer {
     max_zoom: 18,
 };
 
-pub const ALL: [WmtsLayer; 5] = [ORTHO, PLAN_IGN, LIDAR_SHADOW, OCSGE_COUVERTURE, COSIA];
+/// Toponymes (BD TOPO) : PNG transparent à superposer à l'ortho. Tuile vide = 404.
+pub const NAMES: WmtsLayer = WmtsLayer {
+    id: "names",
+    name: "GEOGRAPHICALNAMES.NAMES",
+    format: "image/png",
+    ext: "png",
+    matrix_set: "PM_6_18",
+    min_zoom: 6,
+    max_zoom: 18,
+};
+
+pub const ALL: [WmtsLayer; 6] = [
+    ORTHO,
+    PLAN_IGN,
+    LIDAR_SHADOW,
+    OCSGE_COUVERTURE,
+    COSIA,
+    NAMES,
+];
 
 pub fn layer_by_id(id: &str) -> Option<WmtsLayer> {
     ALL.iter().copied().find(|l| l.id == id)

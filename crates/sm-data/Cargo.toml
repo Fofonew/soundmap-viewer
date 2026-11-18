@@ -23,6 +23,7 @@ tracing = { workspace = true }
 flatgeobuf = { workspace = true }
 geozero = { workspace = true }
 laz = { workspace = true }
+miniz_oxide = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }

@@ -42,6 +42,18 @@ pub enum Directivity {
         spacing_m: f64,
         h_cov_deg: f64,
     },
+    /// Cardioïde du premier ordre (sub cardioïde intégré, à haut-parleur
+    /// arrière) : p(θ) = A + B·cos θ, A + B = 1, A − B = 10^(−R/20), avec R
+    /// l'atténuation à l'arrière, indépendante de la fréquence dans la bande.
+    Cardioid { rear_rejection_db: f64 },
+}
+
+/// Dimensions extérieures d'une enceinte (m), pour le dessin 3D.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Dims {
+    pub width_m: f64,
+    pub height_m: f64,
+    pub depth_m: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -59,6 +71,20 @@ pub struct SpeakerModel {
     pub directivity: Directivity,
     /// Puissance d'amplification nominale (W) pour le dimensionnement.
     pub power_w: f64,
+    /// Dimensions (dessin 3D) ; `None` = valeurs types du genre d'enceinte.
+    #[serde(default)]
+    pub dims: Option<Dims>,
+    /// Réponse mesurée (Hz, dB relatifs au niveau max), points croissants en
+    /// fréquence. Remplace f_lo/f_hi/pente quand elle a au moins 2 points ;
+    /// prolongée hors des points par la pente `rolloff_db_oct`.
+    #[serde(default)]
+    pub response: Vec<[f64; 2]>,
+    /// Description libre (haut-parleurs, charge, marque…).
+    #[serde(default)]
+    pub notes: String,
+    /// Modèle saisi par l'utilisateur (bibliothèque « Mes enceintes »).
+    #[serde(default)]
+    pub custom: bool,
 }
 
 /// Presets génériques (ordres de grandeur de modèles courants, à ajuster).
@@ -74,6 +100,14 @@ pub fn presets() -> Vec<SpeakerModel> {
             rolloff_db_oct: 24.0,
             directivity: Directivity::Omni,
             power_w: 1200.0,
+            dims: Some(Dims {
+                width_m: 0.6,
+                height_m: 0.65,
+                depth_m: 0.8,
+            }),
+            response: Vec::new(),
+            notes: "1 × 18\", bass-reflex".into(),
+            custom: false,
         },
         SpeakerModel {
             id: "sub2x18".into(),
@@ -85,6 +119,14 @@ pub fn presets() -> Vec<SpeakerModel> {
             rolloff_db_oct: 24.0,
             directivity: Directivity::Omni,
             power_w: 2400.0,
+            dims: Some(Dims {
+                width_m: 1.2,
+                height_m: 0.65,
+                depth_m: 0.8,
+            }),
+            response: Vec::new(),
+            notes: "2 × 18\", bass-reflex".into(),
+            custom: false,
         },
         SpeakerModel {
             id: "top15".into(),
@@ -101,6 +143,14 @@ pub fn presets() -> Vec<SpeakerModel> {
                 radius_m: 0.19,
             },
             power_w: 800.0,
+            dims: Some(Dims {
+                width_m: 0.45,
+                height_m: 0.75,
+                depth_m: 0.45,
+            }),
+            response: Vec::new(),
+            notes: "15\" + moteur 2\"".into(),
+            custom: false,
         },
         SpeakerModel {
             id: "linearray8".into(),
@@ -116,6 +166,14 @@ pub fn presets() -> Vec<SpeakerModel> {
                 h_cov_deg: 110.0,
             },
             power_w: 8.0 * 1000.0,
+            dims: Some(Dims {
+                width_m: 1.0,
+                height_m: 2.8,
+                depth_m: 0.5,
+            }),
+            response: Vec::new(),
+            notes: "8 éléments 2 × 10\" + moteur".into(),
+            custom: false,
         },
     ]
 }
@@ -173,8 +231,47 @@ pub fn piston_db(ka: f64, theta: f64) -> f64 {
 }
 
 impl SpeakerModel {
-    /// Réponse en fréquence relative au niveau max (dB, ≤ 0).
+    /// Dimensions pour le dessin (valeurs types si non renseignées).
+    pub fn dims_or_default(&self) -> Dims {
+        self.dims.unwrap_or(match (&self.kind, &self.directivity) {
+            (_, Directivity::Line { n, spacing_m, .. }) => Dims {
+                width_m: 1.0,
+                height_m: f64::from(*n) * spacing_m,
+                depth_m: 0.5,
+            },
+            (SpeakerKind::Sub, _) => Dims {
+                width_m: 0.6,
+                height_m: 0.65,
+                depth_m: 0.8,
+            },
+            _ => Dims {
+                width_m: 0.45,
+                height_m: 0.75,
+                depth_m: 0.45,
+            },
+        })
+    }
+
+    /// Réponse en fréquence relative au niveau max (dB, ≤ 0 en général).
     pub fn response_db(&self, f: f64) -> f64 {
+        if let [first, .., last] = self.response.as_slice() {
+            let lf = f.max(1e-3).log2();
+            if f <= first[0] {
+                return first[1] - self.rolloff_db_oct * (first[0] / f).log2();
+            }
+            if f >= last[0] {
+                return last[1] - self.rolloff_db_oct * (f / last[0]).log2();
+            }
+            for w in self.response.windows(2) {
+                let (a, b) = (w[0], w[1]);
+                if f <= b[0] {
+                    let (la, lb) = (a[0].log2(), b[0].log2());
+                    let t = if lb > la { (lf - la) / (lb - la) } else { 0.0 };
+                    return a[1] + (b[1] - a[1]) * t;
+                }
+            }
+            return last[1];
+        }
         if f < self.f_lo {
             -self.rolloff_db_oct * (self.f_lo / f).log2()
         } else if f > self.f_hi {
@@ -205,6 +302,11 @@ impl SpeakerModel {
                     + if theta > PI / 2.0 { -6.0 } else { 0.0 };
                 let g = (f / f_control).powi(2).min(1.0);
                 g * horn + (1.0 - g) * piston
+            }
+            Directivity::Cardioid { rear_rejection_db } => {
+                let r = 10f64.powf(-rear_rejection_db.max(0.0) / 20.0);
+                let p = (1.0 + r) / 2.0 + (1.0 - r) / 2.0 * theta.cos();
+                (20.0 * p.abs().max(1e-3).log10()).max(-40.0)
             }
             Directivity::Line {
                 n,
@@ -497,5 +599,33 @@ mod tests {
         assert_eq!(p.level_db(63.0), 0.0);
         assert!(p.level_db(25.0) < p.level_db(31.5));
         assert!((p.level_db(1000.0) - (-11.0)).abs() < 0.2);
+    }
+
+    #[test]
+    fn cardioid_pattern() {
+        let mut m = preset("sub18").unwrap();
+        m.directivity = Directivity::Cardioid {
+            rear_rejection_db: 20.0,
+        };
+        assert!(m.directivity_db(63.0, C, 0.0, 0.0).abs() < 1e-9);
+        assert!((m.directivity_db(63.0, C, PI, 0.0) + 20.0).abs() < 1e-6);
+        // Côté : A = (1 + 0,1)/2 = 0,55 → −5,2 dB.
+        assert!((m.directivity_db(63.0, C, PI / 2.0, 0.0) + 5.19).abs() < 0.02);
+    }
+
+    #[test]
+    fn measured_response_overrides_band_limits() {
+        let mut m = preset("sub18").unwrap();
+        m.response = vec![[30.0, -6.0], [40.0, 0.0], [100.0, 0.0], [150.0, -10.0]];
+        assert!((m.response_db(40.0)).abs() < 1e-9);
+        assert!(
+            (m.response_db(35.0) + 2.79).abs() < 0.05,
+            "{}",
+            m.response_db(35.0)
+        );
+        // Sous le premier point : pente de 24 dB/oct.
+        assert!((m.response_db(15.0) + 30.0).abs() < 1e-9);
+        assert!((m.response_db(300.0) + 34.0).abs() < 1e-9);
+        assert_eq!(m.dims_or_default().width_m, 0.6);
     }
 }

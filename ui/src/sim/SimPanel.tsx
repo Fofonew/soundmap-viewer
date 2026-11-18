@@ -1,10 +1,14 @@
 import * as maplibregl from 'maplibre-gl';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { ModelLibrary } from './ModelLibrary';
+import { bearing, boxFootprint, rotateAround } from './speakerMath';
 import { PROTOCOL_BASE as B, fmtDuration, type OpenZoneResponse } from '../api';
 import {
   METRICS,
   PALETTE,
+  dimsOf,
   defaultSettings,
   freePartySystem,
   newId,
@@ -27,20 +31,21 @@ import {
   type SpeakerSpec,
 } from './simApi';
 import { SectionChart } from './SectionChart';
+import { t as tr, useT, type TKey } from '../i18n';
 
 type Tab = 'sono' | 'carte' | 'bf' | 'impact' | 'dim' | 'projet';
 type Tool = 'none' | 'place' | 'dancefloor' | 'section';
 
-const TABS: [Tab, string][] = [
-  ['sono', 'Sono'],
-  ['carte', 'Carte'],
-  ['bf', 'Basses fréq.'],
-  ['impact', 'Impact'],
-  ['dim', 'Dimens.'],
-  ['projet', 'Projet'],
+const TABS: [Tab, TKey][] = [
+  ['sono', 'sim.tab.sono'],
+  ['carte', 'sim.tab.carte'],
+  ['bf', 'sim.tab.bf'],
+  ['impact', 'sim.tab.impact'],
+  ['dim', 'sim.tab.dim'],
+  ['projet', 'sim.tab.projet'],
 ];
 
-const KIND_LABEL = { sub: 'Sub', top: 'Tête', line_array: 'Line array' } as const;
+const KIND_KEY = { sub: 'sim.kind.sub', top: 'sim.kind.top', line_array: 'sim.kind.line_array' } as const satisfies Record<string, TKey>;
 
 function errText(e: unknown): string {
   return typeof e === 'string' ? e : e instanceof Error ? e.message : JSON.stringify(e);
@@ -62,6 +67,7 @@ function colorExpr(offset: number): maplibregl.ExpressionSpecification {
 }
 
 export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: OpenZoneResponse; onBack: () => void }) {
+  const { t, num } = useT();
   const zoneId = zone.summary.id;
   const [center] = useState<[number, number]>(zone.products.center_lonlat);
   const [catalog, setCatalog] = useState<Catalog | null>(null);
@@ -118,7 +124,19 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
   const ensureLayers = useCallback(() => {
     if (layersReady.current || !map.getSource('zone')) return layersReady.current;
     const empty: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
-    for (const id of ['iso', 'df', 'imp', 'sec', 'cal']) map.addSource(id, { type: 'geojson', data: empty });
+    for (const id of ['iso', 'df', 'imp', 'sec', 'cal', 'boxes']) map.addSource(id, { type: 'geojson', data: empty });
+    // Enceintes dessinées à l'échelle (dimensions du modèle), posées sur le relief.
+    map.addLayer({
+      id: 'spk-boxes',
+      type: 'fill-extrusion',
+      source: 'boxes',
+      paint: {
+        'fill-extrusion-color': ['match', ['get', 'kind'], 'sub', '#2a2a2e', 'top', '#3a3f4a', '#4b3f5e'],
+        'fill-extrusion-base': ['get', 'base'],
+        'fill-extrusion-height': ['get', 'top'],
+        'fill-extrusion-opacity': 0.95,
+      },
+    });
     map.addLayer({ id: 'iso', type: 'line', source: 'iso', paint: { 'line-color': '#ffffff', 'line-width': 1.2, 'line-opacity': 0.9 } });
     map.addLayer({ id: 'df-fill', type: 'fill', source: 'df', paint: { 'fill-color': '#ff7a1a', 'fill-opacity': 0.25 } });
     map.addLayer({ id: 'df-line', type: 'line', source: 'df', paint: { 'line-color': '#ff7a1a', 'line-width': 2 } });
@@ -243,6 +261,54 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
     if (map.getLayer('iso')) map.setLayoutProperty('iso', 'visibility', showIso ? 'visible' : 'none');
   }, [showIso, map, layer]);
 
+  // ---------- Survol : niveau au point, nature du bâtiment ----------
+  const hoverRef = useRef({ resultId, variant: useLf ? variant : 'main', metric });
+  hoverRef.current = { resultId, variant: useLf ? variant : 'main', metric };
+  useEffect(() => {
+    const pop = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: 'hover-pop', offset: 14, maxWidth: '280px' });
+    let latest: maplibregl.MapMouseEvent | null = null;
+    let busy = false;
+    let inside = false;
+    const show = async () => {
+      if (busy || !latest) return;
+      busy = true;
+      const e = latest;
+      latest = null;
+      const h = hoverRef.current;
+      const b = map.getLayer('buildings-3d') ? map.queryRenderedFeatures(e.point, { layers: ['buildings-3d'] })[0]?.properties : undefined;
+      let v: number | null = null;
+      if (h.resultId && map.getLayer('spl')) {
+        v = await simApi.valueAt(h.resultId, h.variant, h.metric, e.lngLat.lng, e.lngLat.lat).catch(() => null);
+      }
+      busy = false;
+      if (!inside) return;
+      if (v === null && !b) {
+        pop.remove();
+      } else {
+        pop.setLngLat(e.lngLat).setDOMContent(hoverContent(v, METRICS.find((m) => m.key === h.metric)?.label ?? 'dB', b));
+        if (!pop.isOpen()) pop.addTo(map);
+      }
+      if (latest) void show();
+    };
+    const onMove = (e: maplibregl.MapMouseEvent) => {
+      inside = true;
+      latest = e;
+      void show();
+    };
+    const onOut = () => {
+      inside = false;
+      latest = null;
+      pop.remove();
+    };
+    map.on('mousemove', onMove);
+    map.on('mouseout', onOut);
+    return () => {
+      map.off('mousemove', onMove);
+      map.off('mouseout', onOut);
+      pop.remove();
+    };
+  }, [map]);
+
   // ---------- Dancefloor, impact, coupe ----------
   useEffect(() => {
     if (!ensureLayers()) return;
@@ -306,7 +372,7 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
         const az = p?.speakers[0]?.azimuth_deg ?? 0;
         const sp: SpeakerSpec = {
           id: newId(m.kind),
-          name: `${KIND_LABEL[m.kind]} ${(p?.speakers.filter((s) => s.model.kind === m.kind).length ?? 0) + 1}`,
+          name: `${tr(KIND_KEY[m.kind])} ${(p?.speakers.filter((s) => s.model.kind === m.kind).length ?? 0) + 1}`,
           model: m,
           lon: lng,
           lat,
@@ -410,6 +476,110 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
   }, [project, map, selected]);
   const moveAllRef = useRef(moveAll);
   moveAllRef.current = moveAll;
+
+  // Boîtes 3D des enceintes : empreinte L × P tournée, de base = h − H/2 (≥ 0) à base + H.
+  useEffect(() => {
+    if (!project || !ensureLayers()) return;
+    const feats: GeoJSON.Feature[] = project.speakers.map((s) => {
+      const d = dimsOf(s.model);
+      const base = Math.max(0, s.height_m - d.height_m / 2);
+      return {
+        type: 'Feature',
+        properties: { kind: s.model.kind, base, top: base + d.height_m },
+        geometry: { type: 'Polygon', coordinates: [boxFootprint(s.lon, s.lat, d.width_m, d.depth_m, s.azimuth_deg)] },
+      };
+    });
+    (map.getSource('boxes') as maplibregl.GeoJSONSource | undefined)?.setData({ type: 'FeatureCollection', features: feats });
+  }, [project, map, ensureLayers]);
+
+  // ---------- Poignée de rotation du système, accrochée au stack ----------
+  // Glisser la poignée autour du centre du système le fait pivoter (Maj : pas de 15°).
+  const rotMk = useRef<maplibregl.Marker | null>(null);
+  const rotDrag = useRef<{ base: SpeakerSpec[]; c: [number, number]; az0: number } | null>(null);
+  const shiftRef = useRef(false);
+  const placeRot = useCallback(() => {
+    const mk = rotMk.current;
+    const p = projectRef.current;
+    if (!mk) return;
+    const el = mk.getElement();
+    if (!p || p.speakers.length === 0) {
+      el.style.display = 'none';
+      return;
+    }
+    el.style.display = '';
+    const az = p.speakers[0].azimuth_deg;
+    const label = el.querySelector('span');
+    if (label) label.textContent = `${Math.round(az)}°`;
+    if (rotDrag.current) return;
+    const n = p.speakers.length;
+    const c: [number, number] = [p.speakers.reduce((a, s) => a + s.lon, 0) / n, p.speakers.reduce((a, s) => a + s.lat, 0) / n];
+    const a = (az * Math.PI) / 180;
+    const P = map.project(c);
+    const Q = map.project(offsetLonLat(c[0], c[1], 10 * Math.sin(a), 10 * Math.cos(a)));
+    // Distance au sol donnant ~72 px à l'écran (unproject est peu fiable en 3D incliné).
+    const pxPer10m = Math.hypot(Q.x - P.x, Q.y - P.y);
+    const d = Math.min(400, Math.max(1.5, pxPer10m > 0.01 ? (72 / pxPer10m) * 10 : 400));
+    mk.setLngLat(offsetLonLat(c[0], c[1], d * Math.sin(a), d * Math.cos(a)));
+  }, [map]);
+  useEffect(() => {
+    const el = document.createElement('div');
+    el.className = 'rot-handle';
+    el.title = tr('sim.rotateHandle');
+    el.innerHTML = '<b>⟳</b><span></span>';
+    const mk = new maplibregl.Marker({ element: el, draggable: true }).setLngLat(map.getCenter()).addTo(map);
+    rotMk.current = mk;
+    mk.on('dragstart', () => {
+      const p = projectRef.current;
+      if (!p || p.speakers.length === 0) return;
+      const n = p.speakers.length;
+      rotDrag.current = {
+        base: p.speakers,
+        c: [p.speakers.reduce((a, s) => a + s.lon, 0) / n, p.speakers.reduce((a, s) => a + s.lat, 0) / n],
+        az0: p.speakers[0].azimuth_deg,
+      };
+    });
+    mk.on('drag', () => {
+      const r = rotDrag.current;
+      if (!r) return;
+      const ll = mk.getLngLat();
+      let az = bearing(r.c, [ll.lng, ll.lat]);
+      az = shiftRef.current ? Math.round(az / 15) * 15 : Math.round(az);
+      const d = az - r.az0;
+      setProject((p) =>
+        p
+          ? {
+              ...p,
+              speakers: r.base.map((s) => {
+                const [lo, la] = rotateAround(s.lon, s.lat, r.c[0], r.c[1], d);
+                return { ...s, lon: lo, lat: la, azimuth_deg: (((s.azimuth_deg + d) % 360) + 360) % 360 };
+              }),
+            }
+          : p,
+      );
+      setLfStale(true);
+      setUseLf(false);
+    });
+    mk.on('dragend', () => {
+      rotDrag.current = null;
+      placeRot();
+    });
+    const key = (e: KeyboardEvent) => {
+      shiftRef.current = e.shiftKey;
+    };
+    window.addEventListener('keydown', key);
+    window.addEventListener('keyup', key);
+    map.on('move', placeRot);
+    return () => {
+      map.off('move', placeRot);
+      window.removeEventListener('keydown', key);
+      window.removeEventListener('keyup', key);
+      mk.remove();
+      rotMk.current = null;
+    };
+  }, [map, placeRot]);
+  useEffect(() => {
+    placeRot();
+  }, [project, placeRot]);
   useEffect(
     () => () => {
       for (const mk of markers.current.values()) mk.remove();
@@ -481,11 +651,11 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
 
   const saveAs = async () => {
     if (!project) return;
-    const path = await saveDialog({ defaultPath: `${project.name}.smproj`, filters: [{ name: 'Projet SoundMap', extensions: ['smproj'] }] });
+    const path = await saveDialog({ defaultPath: `${project.name}.smproj`, filters: [{ name: tr('sim.projectFile'), extensions: ['smproj'] }] });
     if (path) await simApi.saveProject(path, project).catch((e) => setError(errText(e)));
   };
   const openProject = async () => {
-    const path = await openDialog({ filters: [{ name: 'Projet SoundMap', extensions: ['smproj'] }], multiple: false });
+    const path = await openDialog({ filters: [{ name: tr('sim.projectFile'), extensions: ['smproj'] }], multiple: false });
     if (typeof path === 'string') {
       try {
         const p = await simApi.loadProject(path);
@@ -521,7 +691,7 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
 
   const importMeasurements = async () => {
     if (!project) return;
-    const path = await openDialog({ filters: [{ name: 'Mesures (CSV, GPX)', extensions: ['csv', 'gpx', 'txt'] }], multiple: false });
+    const path = await openDialog({ filters: [{ name: tr('sim.measuresFile'), extensions: ['csv', 'gpx', 'txt'] }], multiple: false });
     if (typeof path !== 'string') return;
     setBusy('calibrate');
     try {
@@ -549,7 +719,7 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
     return (
       <section className="card">
         <h2>{zone.spec.name}</h2>
-        <p className="muted small">{error ?? 'Chargement de la scène…'}</p>
+        <p className="muted small">{error ?? t('sim.loading')}</p>
       </section>
     );
   }
@@ -559,10 +729,11 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
 
   return (
     <>
+      {layer && createPortal(<MapLegend offset={layer.palette_offset} unit={METRICS.find((m) => m.key === metric)?.label ?? 'dB'} />, map.getContainer())}
       <nav className="tabs" role="tablist">
-        {TABS.map(([t, label]) => (
-          <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
-            {label}
+        {TABS.map(([id, label]) => (
+          <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? 'on' : ''} onClick={() => setTab(id)}>
+            {t(label)}
           </button>
         ))}
       </nav>
@@ -570,7 +741,7 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
       {error && (
         <div className="alert" role="alert">
           <span>{error}</span>
-          <button className="ghost" onClick={() => setError(null)} aria-label="Fermer">
+          <button className="icon-btn" onClick={() => setError(null)} aria-label={t('common.close')}>
             ×
           </button>
         </div>
@@ -578,23 +749,23 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
 
       {job && (
         <section className="card">
-          <h2>{job.kind === 'lowfreq' ? 'Calcul basses fréquences (GFPE)' : 'Optimisation'}</h2>
+          <h2>{job.kind === 'lowfreq' ? t('sim.job.lowfreq') : t('sim.job.optimize')}</h2>
           <div className="bar" role="progressbar" aria-valuenow={Math.round(progressPct)} aria-valuemin={0} aria-valuemax={100}>
             <div style={{ width: `${progressPct}%` }} />
           </div>
           <p className="small">
-            {job.p ? `${job.p.done.toLocaleString('fr-FR')} / ${job.p.total.toLocaleString('fr-FR')} — ${job.p.message}` : 'Préparation…'}
+            {job.p ? `${num(job.p.done, 0)} / ${num(job.p.total, 0)} — ${job.p.message}` : t('progress.preparing')}
           </p>
           <button className="ghost danger" onClick={() => simApi.cancel(job.kind)}>
-            Annuler
+            {t('common.cancel')}
           </button>
         </section>
       )}
 
       {preview && (
-        <p className="mono muted small status">
-          {useLf && lowfreq ? `GFPE · ${variant}` : `aperçu ${preview.total_ms.toFixed(0)} ms`}
-          {!useLf && preview.timing.cached_excess ? ' (incrémental)' : ''} · {n1(preview.air.t_c)} °C · {n1(preview.air.rh, 0)} %
+        <p className="readout small status">
+          {useLf && lowfreq ? `GFPE · ${variant}` : t('sim.status.preview', { ms: Math.round(preview.total_ms) })}
+          {!useLf && preview.timing.cached_excess ? ` ${t('sim.status.incremental')}` : ''} · {n1(preview.air.t_c)} °C · {n1(preview.air.rh, 0)} %
           {layer ? ` · max ${n1(layer.stats.max_db)} dB` : ''}
         </p>
       )}
@@ -602,9 +773,9 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
       {tab === 'sono' && (
         <>
           <section className="card">
-            <h2>Placer des enceintes</h2>
+            <h2>{t('sim.place.title')}</h2>
             <div className="row">
-              <select value={placeModel} onChange={(e) => setPlaceModel(e.target.value)} aria-label="Modèle à placer">
+              <select value={placeModel} onChange={(e) => setPlaceModel(e.target.value)} aria-label={t('sim.place.model')}>
                 {catalog.speakers.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.name}
@@ -612,7 +783,7 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
                 ))}
               </select>
               <button className={tool === 'place' ? 'primary pulse' : 'primary'} onClick={() => setTool(tool === 'place' ? 'none' : 'place')}>
-                {tool === 'place' ? 'Cliquer sur la carte' : 'Placer'}
+                {tool === 'place' ? t('sim.place.clickMap') : t('sim.place.place')}
               </button>
             </div>
             <button
@@ -620,14 +791,14 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
                 update((p) => ({ ...p, speakers: [...p.speakers, ...freePartySystem(catalog, center[0], center[1], p.speakers[0]?.azimuth_deg ?? 0)] }))
               }
             >
-              + Système type (4 subs 18" + 2 têtes) au point sono
+              {t('sim.place.typical')}
             </button>
             <label className="check">
               <input type="checkbox" checked={moveAll} onChange={(e) => setMoveAll(e.target.checked)} />
-              Glisser une enceinte déplace tout le système
+              {t('sim.place.moveAll')}
             </label>
             <div className="row">
-              <span className="small muted">Orienter tout le système</span>
+              <span className="small muted">{t('sim.place.orient')}</span>
               <input
                 type="range"
                 min={0}
@@ -655,14 +826,24 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
                     };
                   });
                 }}
-                aria-label="Azimut du système"
+                aria-label={t('sim.place.azimuth')}
               />
             </div>
           </section>
 
+          <ModelLibrary
+            models={catalog.speakers}
+            onChanged={() =>
+              simApi
+                .catalog()
+                .then(setCatalog)
+                .catch((e) => setError(errText(e)))
+            }
+          />
+
           <section className="card">
-            <h2>Enceintes ({project.speakers.length})</h2>
-            {project.speakers.length === 0 && <p className="muted small">Aucune enceinte. Placez-en sur la carte ou ajoutez le système type.</p>}
+            <h2>{t('sim.speakers.title', { count: project.speakers.length })}</h2>
+            {project.speakers.length === 0 && <p className="muted small">{t('sim.speakers.none')}</p>}
             <ul className="spk-list">
               {project.speakers.map((s) => (
                 <li key={s.id} className={s.id === selected ? 'on' : ''}>
@@ -671,8 +852,8 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
                     <span className="muted small">
                       {' '}
                       {s.azimuth_deg.toFixed(0)}° · {s.height_m} m{s.delay_ms ? ` · ${s.delay_ms.toFixed(2)} ms` : ''}
-                      {s.polarity < 0 ? ' · inv.' : ''}
-                      {s.muted ? ' · coupée' : ''}
+                      {s.polarity < 0 ? ` · ${t('sim.speakers.inv')}` : ''}
+                      {s.muted ? ` · ${t('sim.speakers.muted')}` : ''}
                     </span>
                   </button>
                 </li>
@@ -693,10 +874,10 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
           )}
 
           <section className="card">
-            <h2>Dancefloor</h2>
+            <h2>{t('sim.df.title')}</h2>
             {tool === 'dancefloor' ? (
               <div className="row">
-                <span className="small">{draftFloor.length} points</span>
+                <span className="small">{t('sim.df.points', { count: draftFloor.length })}</span>
                 <button
                   className="primary"
                   disabled={draftFloor.length < 3}
@@ -706,7 +887,7 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
                     setTool('none');
                   }}
                 >
-                  Terminer
+                  {t('sim.df.finish')}
                 </button>
                 <button
                   className="ghost"
@@ -715,7 +896,7 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
                     setTool('none');
                   }}
                 >
-                  Annuler
+                  {t('common.cancel')}
                 </button>
               </div>
             ) : (
@@ -726,11 +907,11 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
                     setTool('dancefloor');
                   }}
                 >
-                  {project.dancefloor ? 'Redessiner' : 'Dessiner le polygone'}
+                  {project.dancefloor ? t('sim.df.redraw') : t('sim.df.draw')}
                 </button>
                 {project.dancefloor && (
                   <button className="ghost danger" onClick={() => update((p) => ({ ...p, dancefloor: null }))}>
-                    Effacer
+                    {t('sim.df.clear')}
                   </button>
                 )}
               </div>
@@ -742,7 +923,7 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
       {tab === 'carte' && (
         <>
           <section className="card">
-            <h2>Indicateur</h2>
+            <h2>{t('sim.map.metric')}</h2>
             <div className="chips">
               {METRICS.map((m) => (
                 <button key={m.key} className={metric === m.key ? 'chipbtn on' : 'chipbtn'} onClick={() => setMetric(m.key)}>
@@ -752,11 +933,11 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
             </div>
             {useLf && layer && layer.variants.length > 1 && (
               <label className="field">
-                <span>Variante (enveloppe de scénarios)</span>
+                <span>{t('sim.map.variant')}</span>
                 <select value={variant} onChange={(e) => setVariant(e.target.value)}>
                   {layer.variants.map((v) => (
                     <option key={v} value={v}>
-                      {v === 'main' ? 'Médiane des scénarios' : v === 'p90' ? 'P90 (90e centile)' : (lowfreq?.scenarios.find((s) => s.id === v)?.label ?? v)}
+                      {v === 'main' ? t('sim.map.median') : v === 'p90' ? t('sim.map.p90') : (lowfreq?.scenarios.find((s) => s.id === v)?.label ?? v)}
                     </option>
                   ))}
                 </select>
@@ -765,24 +946,24 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
             {lowfreq && (
               <label className="check">
                 <input type="checkbox" checked={useLf} onChange={(e) => setUseLf(e.target.checked)} disabled={lfStale} />
-                Afficher le calcul GFPE {lfStale ? '(obsolète : système modifié)' : ''}
+                {t('sim.map.showGfpe')} {lfStale ? t('sim.map.stale') : ''}
               </label>
             )}
             <label className="field">
-              <span>Opacité {Math.round(opacity * 100)} %</span>
+              <span>{t('sim.map.opacity', { pct: Math.round(opacity * 100) })}</span>
               <input type="range" min={0.1} max={1} step={0.05} value={opacity} onChange={(e) => setOpacity(Number(e.target.value))} />
             </label>
             <label className="check">
               <input type="checkbox" checked={showIso} onChange={(e) => setShowIso(e.target.checked)} />
-              Isophones (pas de 5 dB)
+              {t('sim.map.iso')}
             </label>
             {layer && <Legend offset={layer.palette_offset} />}
             {layer && <p className="muted small">{layer.method}</p>}
           </section>
           <section className="card">
-            <h2>Coupe du terrain</h2>
+            <h2>{t('sim.section.title')}</h2>
             <button className={tool === 'section' ? 'primary pulse' : ''} onClick={() => setTool(tool === 'section' ? 'none' : 'section')}>
-              {tool === 'section' ? 'Cliquer un point de la carte' : 'Choisir un point'}
+              {tool === 'section' ? t('sim.section.click') : t('sim.section.pick')}
             </button>
             {section && <SectionChart s={section} />}
             {sectionPt && (
@@ -800,17 +981,22 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
                   }}
                   disabled={busy === 'aural'}
                 >
-                  {busy === 'aural' ? 'Synthèse…' : 'Écouter ce point'}
+                  {busy === 'aural' ? t('sim.aural.busy') : t('sim.aural.listen')}
                 </button>
                 {aural && (
                   <>
                     <p className="small">
-                      Dancefloor {n1(aural.dancefloor_dba, 0)} dB(A) → point ({(aural.distance_m / 1000).toFixed(2)} km){' '}
-                      {n1(aural.point_dba, 0)} dB(A) / {n1(aural.point_dbc, 0)} dB(C), bruit résiduel {n1(aural.residual_dba, 0)} dB(A).
+                      {t('sim.aural.summary', {
+                        df: n1(aural.dancefloor_dba, 0),
+                        km: num(aural.distance_m / 1000, 2),
+                        a: n1(aural.point_dba, 0),
+                        c: n1(aural.point_dbc, 0),
+                        res: n1(aural.residual_dba, 0),
+                      })}
                     </p>
-                    <label className="small">Au dancefloor</label>
+                    <label className="small">{t('sim.aural.atDf')}</label>
                     <audio controls src={`data:audio/wav;base64,${aural.dancefloor_wav}`} />
-                    <label className="small">Chez le riverain (timbre et bruit de fond ; niveau ramené, en réalité −{n1(aural.level_drop_dba, 0)} dB)</label>
+                    <label className="small">{t('sim.aural.atHome', { drop: n1(aural.level_drop_dba, 0) })}</label>
                     <audio controls src={`data:audio/wav;base64,${aural.point_wav}`} />
                   </>
                 )}
@@ -822,20 +1008,17 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
 
       {tab === 'bf' && (
         <section className="card">
-          <h2>Basses fréquences (GFPE)</h2>
-          <p className="small muted">
-            Équation parabolique sur 360 azimuts, tiers d'octave 25–200 Hz, relief LiDAR, sol par segment, profil météo AROME
-            (Monin-Obukhov) et 3 scénarios de référence. Fusion avec la méthode d'ingénierie au-delà de 200 Hz.
-          </p>
+          <h2>{t('sim.bf.title')}</h2>
+          <p className="small muted">{t('sim.bf.lede')}</p>
           <button className="primary" disabled={!!job || project.speakers.length === 0} onClick={runLowFreq}>
-            Lancer le calcul (≈ {scene ? '10–60 s' : '…'})
+            {t('sim.bf.run', { time: scene ? '10–60 s' : '…' })}
           </button>
           {lowfreq && (
             <>
               <table className="tbl">
                 <thead>
                   <tr>
-                    <th>Scénario</th>
+                    <th>{t('sim.bf.scenario')}</th>
                     <th className="num">max dB(C)</th>
                     <th className="num">≥ 55 dB(C)</th>
                   </tr>
@@ -856,12 +1039,9 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
                 </tbody>
               </table>
               <p className="small">
-                Total {fmtDuration(lowfreq.total_s)}. {lfStale && <span className="warn-text">Le système a changé depuis : relancer.</span>}
+                {t('sim.bf.total', { time: fmtDuration(lowfreq.total_s) })} {lfStale && <span className="warn-text">{t('sim.bf.stale')}</span>}
               </p>
-              <p className="muted small">
-                Incertitude affichée : la carte « médiane » et la carte « P90 » de l'onglet Carte encadrent les scénarios. Précision
-                attendue : ±3 dB à moins de 500 m, ±5 à 10 dB à plusieurs km de nuit.
-              </p>
+              <p className="muted small">{t('sim.bf.uncertainty')}</p>
             </>
           )}
         </section>
@@ -870,9 +1050,9 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
       {tab === 'impact' && (
         <>
           <section className="card">
-            <h2>Seuils et bruit résiduel</h2>
+            <h2>{t('sim.impact.title')}</h2>
             <label className="field">
-              <span>Seuils d'émergence (dB), libres</span>
+              <span>{t('sim.impact.thresholds')}</span>
               <input
                 type="text"
                 defaultValue={thresholdsText}
@@ -886,7 +1066,7 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
               />
             </label>
             <label className="field">
-              <span>Résiduel rural de nuit : {project.settings.residual.rural_night_dba} dB(A)</span>
+              <span>{t('sim.impact.rural', { db: project.settings.residual.rural_night_dba })}</span>
               <input
                 type="range"
                 min={15}
@@ -901,13 +1081,13 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
                 checked={project.settings.residual.include_roads}
                 onChange={(e) => set((s) => ({ ...s, residual: { ...s.residual, include_roads: e.target.checked } }))}
               />
-              Majorer près des routes
+              {t('sim.impact.roads')}
             </label>
             <label className="field">
-              <span>Mesure du résiduel (dB(A), remplace le modèle)</span>
+              <span>{t('sim.impact.measured')}</span>
               <input
                 type="text"
-                placeholder="vide = modèle"
+                placeholder={t('sim.impact.measuredPh')}
                 defaultValue={project.settings.residual.measured_dba ?? ''}
                 onBlur={(e) => {
                   const v = e.target.value.trim() === '' ? null : Number(e.target.value);
@@ -916,7 +1096,7 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
               />
             </label>
             <button className="primary" onClick={runImpact} disabled={busy === 'impact' || project.speakers.length === 0}>
-              {busy === 'impact' ? 'Calcul…' : useLf ? 'Évaluer l\'impact (GFPE)' : 'Évaluer l\'impact'}
+              {busy === 'impact' ? t('sim.impact.busy') : useLf ? t('sim.impact.runGfpe') : t('sim.impact.run')}
             </button>
           </section>
           {impact && <ImpactView r={impact} show={showImpact} setShow={setShowImpact} onFocus={(b) => map.flyTo({ center: [b.lon, b.lat], zoom: 16.5 })} />}
@@ -926,63 +1106,60 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
       {tab === 'dim' && (
         <>
           <section className="card">
-            <h2>Dimensionnement inverse</h2>
-            {!project.dancefloor && <p className="muted small">Dessinez d'abord le dancefloor (onglet Sono).</p>}
+            <h2>{t('sim.dim.title')}</h2>
+            {!project.dancefloor && <p className="muted small">{t('sim.dim.needDf')}</p>}
             <div className="row">
               <label className="field">
-                <span>Cible dB(A)</span>
+                <span>{t('sim.dim.targetA')}</span>
                 <input type="number" value={project.settings.target.dba} onChange={(e) => set((s) => ({ ...s, target: { ...s.target, dba: Number(e.target.value) } }))} />
               </label>
               <label className="field">
-                <span>Cible dB(C)</span>
+                <span>{t('sim.dim.targetC')}</span>
                 <input type="number" value={project.settings.target.dbc} onChange={(e) => set((s) => ({ ...s, target: { ...s.target, dbc: Number(e.target.value) } }))} />
               </label>
             </div>
             <button className="primary" disabled={!project.dancefloor || busy === 'sizing'} onClick={runSizing}>
-              Calculer
+              {t('sim.dim.compute')}
             </button>
             {sizing && <SizingView r={sizing} />}
           </section>
           <section className="card">
-            <h2>Optimiseur</h2>
-            <p className="muted small">
-              Position (±60 m), azimut (pas de 15°) et montage des subs (tel quel, cardioïde, end-fire) : maximise la marge au bâtiment
-              le plus exposé sous contrainte du niveau dancefloor.
-            </p>
+            <h2>{t('sim.opt.title')}</h2>
+            <p className="muted small">{t('sim.opt.lede')}</p>
             <button className="primary" disabled={!!job || project.speakers.length === 0} onClick={runOptimize}>
-              Lancer l'optimisation
+              {t('sim.opt.run')}
             </button>
             {candidates && (
               <>
-                <p className="small muted">{candidates.list.length} meilleurs candidats en {candidates.seconds.toFixed(1)} s.</p>
+                <p className="small muted">{t('sim.opt.found', { count: candidates.list.length, s: num(candidates.seconds, 1) })}</p>
                 <ul className="cands">
                   {candidates.list.slice(0, 5).map((c, i) => (
                     <li key={i}>
                       <div>
                         <strong>
-                          {c.config === 'as_is' ? 'Tel quel' : c.config === 'cardioid' ? 'Cardioïde' : 'End-fire'} · {c.azimuth_deg.toFixed(0)}°
+                          {c.config === 'as_is' ? t('sim.opt.asIs') : c.config === 'cardioid' ? t('sim.opt.cardioid') : t('sim.opt.endfire')} · {c.azimuth_deg.toFixed(0)}°
                         </strong>
                         <span className="muted small">
                           {' '}
                           Δ {c.dx.toFixed(0)} / {c.dy.toFixed(0)} m
                         </span>
                         <div className="small">
-                          émergence max {signed(c.worst_emergence_dba)} dB(A) · marge {signed(c.margin_db)} dB
+                          {t('sim.opt.line', { em: signed(c.worst_emergence_dba), margin: signed(c.margin_db) })}
                           {Number.isFinite(c.dancefloor_dba) ? ` · dancefloor ${n1(c.dancefloor_dba)}/${n1(c.dancefloor_dbc)}` : ''}
                         </div>
                         {c.gfpe_margin_db !== null && (
                           <div className="small ok-text">
-                            vérifié GFPE : émergence max {signed(c.gfpe_worst_emergence_dba ?? 0)} dB(A) · marge {signed(c.gfpe_margin_db)} dB
+                            {t('sim.opt.gfpe', { em: signed(c.gfpe_worst_emergence_dba ?? 0), margin: signed(c.gfpe_margin_db) })}
                           </div>
                         )}
                       </div>
                       <button className="small" onClick={() => update((p) => ({ ...p, speakers: c.speakers }))}>
-                        Appliquer
+                        {t('sim.opt.apply')}
                       </button>
                     </li>
                   ))}
                 </ul>
-                <p className="muted small">Recherche grossière par la méthode d'ingénierie, puis vérification GFPE (scénario prévision) des 3 meilleurs.</p>
+                <p className="muted small">{t('sim.opt.method')}</p>
               </>
             )}
           </section>
@@ -992,13 +1169,13 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
       {tab === 'projet' && (
         <>
           <section className="card">
-            <h2>Projet</h2>
+            <h2>{t('sim.project.title')}</h2>
             <label className="field">
-              <span>Nom</span>
+              <span>{t('zone.name')}</span>
               <input type="text" value={project.name} onChange={(e) => update((p) => ({ ...p, name: e.target.value }))} />
             </label>
             <label className="field">
-              <span>Programme musical</span>
+              <span>{t('sim.project.program')}</span>
               <select value={project.settings.program} onChange={(e) => set((s) => ({ ...s, program: e.target.value }))}>
                 {catalog.programs.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -1008,28 +1185,28 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
               </select>
             </label>
             <label className="field">
-              <span>Gain général {signed(project.settings.master_gain_db)} dB</span>
+              <span>{t('sim.project.gain', { db: signed(project.settings.master_gain_db) })}</span>
               <input type="range" min={-30} max={6} step={0.5} value={project.settings.master_gain_db} onChange={(e) => set((s) => ({ ...s, master_gain_db: Number(e.target.value) }))} />
             </label>
             <div className="row">
               <label className="field">
-                <span>Hauteur des récepteurs</span>
+                <span>{t('sim.project.receiver')}</span>
                 <select value={project.settings.receiver_height_m} onChange={(e) => set((s) => ({ ...s, receiver_height_m: Number(e.target.value) }))}>
-                  <option value={1.5}>1,5 m</option>
+                  <option value={1.5}>{num(1.5, 1)} m</option>
                   <option value={4}>4 m</option>
                 </select>
               </label>
               <label className="field">
-                <span>Conditions</span>
+                <span>{t('sim.project.conditions')}</span>
                 <select value={project.settings.condition} onChange={(e) => set((s) => ({ ...s, condition: e.target.value as 'favorable' | 'homogeneous' }))}>
-                  <option value="favorable">Favorables (nuit)</option>
-                  <option value="homogeneous">Homogènes</option>
+                  <option value="favorable">{t('sim.project.favorable')}</option>
+                  <option value="homogeneous">{t('sim.project.homogeneous')}</option>
                 </select>
               </label>
             </div>
             <div className="row">
               <label className="field">
-                <span>Heure météo AROME</span>
+                <span>{t('sim.project.hour')}</span>
                 <select value={project.settings.meteo_hour} onChange={(e) => set((s) => ({ ...s, meteo_hour: Number(e.target.value) }))}>
                   {Array.from({ length: 24 }, (_, h) => (
                     <option key={h} value={h}>
@@ -1039,7 +1216,7 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
                 </select>
               </label>
               <label className="field">
-                <span>Impédance du sol</span>
+                <span>{t('sim.project.impedance')}</span>
                 <select value={project.settings.impedance_model} onChange={(e) => set((s) => ({ ...s, impedance_model: e.target.value as 'DelanyBazley' | 'Miki' }))}>
                   <option value="DelanyBazley">Delany-Bazley</option>
                   <option value="Miki">Miki</option>
@@ -1047,41 +1224,47 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
               </label>
             </div>
             <div className="row">
-              <button onClick={saveAs}>Enregistrer sous… (.smproj)</button>
-              <button onClick={openProject}>Ouvrir…</button>
+              <button onClick={saveAs}>{t('sim.project.saveAs')}</button>
+              <button onClick={openProject}>{t('sim.project.open')}</button>
             </div>
-            <p className="muted small">Le projet est aussi enregistré automatiquement dans le dossier de la zone.</p>
+            <p className="muted small">{t('sim.project.autosave')}</p>
           </section>
           <section className="card">
-            <h2>Sol : géologie et état</h2>
-            <p className="muted small">
-              Falaises (pente ≥ 45°) traitées en roche. Géologie BRGM (lithologie 1/1 000 000) : sols minces sur roche dure
-              durcis. État du sol à l'heure du calcul (Open-Meteo) : l'humidité durcit le sol, la neige le rend très absorbant.
-            </p>
+            <h2>{t('sim.ground.title')}</h2>
+            <p className="muted small">{t('sim.ground.lede')}</p>
             <p className="small">
-              Falaises : {n1(scene?.ground.cliffs_km2, 2)} km²
+              {t('sim.ground.cliffs', { km2: n1(scene?.ground.cliffs_km2, 2) })}
               {scene?.ground.formations
-                ? ` ; sols durcis : ${n1(scene.ground.hardened_km2, 2)} km² ; formations : ${scene.ground.formations
-                    .map(([d, k]) => `${d} (${k === 'hard' ? 'dure' : k === 'mixed' ? 'mixte' : 'meuble'})`)
+                ? ` ; ${t('sim.ground.hardened', { km2: n1(scene.ground.hardened_km2, 2) })} ; ${t('sim.ground.formations')} ${scene.ground.formations
+                    .map(([d, k]) => `${d} (${t(k === 'hard' ? 'sim.ground.hard' : k === 'mixed' ? 'sim.ground.mixed' : 'sim.ground.soft')})`)
                     .join(' ; ')}`
-                : ' ; géologie non téléchargée'}
+                : ` ; ${t('sim.ground.noGeology')}`}
             </p>
             {scene && (
               <p className="small">
-                Relief : {scene.valley.valley ? 'fond de vallée' : 'pas de vallée'} (position {signed(scene.valley.tpi_m, 0)} m par rapport
-                aux environs, pente régionale {n1(scene.valley.slope_deg, 1)}° vers {Math.round(scene.valley.downslope_toward_deg)}°)
-                {scene.valley.valley ? ' — scénario « lac d’air froid + vent catabatique » ajouté au calcul basses fréquences.' : '.'}
+                {t('sim.ground.relief', {
+                  kind: scene.valley.valley ? t('sim.ground.valley') : t('sim.ground.noValley'),
+                  tpi: signed(scene.valley.tpi_m, 0),
+                  slope: n1(scene.valley.slope_deg, 1),
+                  toward: Math.round(scene.valley.downslope_toward_deg),
+                })}
+                {scene.valley.valley ? ` — ${t('sim.ground.coldPool')}` : '.'}
               </p>
             )}
             {(() => {
               const h = scene?.ground_hours?.find((g) => g.hour === project.settings.meteo_hour);
               return h ? (
                 <p className="small">
-                  {String(h.hour).padStart(2, '0')} h : humidité {h.state.moisture != null ? `${Math.round(h.state.moisture * 100)} %` : '—'}, pluie
-                  24 h {n1(h.state.rain_24h_mm, 1)} mm, neige {h.state.snow_m != null ? `${Math.round(h.state.snow_m * 100)} cm` : '—'} → {h.snow ? 'sol enneigé (classe A)' : `σ × ${n1(h.sigma_factor, 2)}`}
+                  {t('sim.ground.state', {
+                    hour: String(h.hour).padStart(2, '0'),
+                    moisture: h.state.moisture != null ? `${Math.round(h.state.moisture * 100)} %` : '—',
+                    rain: n1(h.state.rain_24h_mm, 1),
+                    snow: h.state.snow_m != null ? `${Math.round(h.state.snow_m * 100)} cm` : '—',
+                  })}{' '}
+                  → {h.snow ? t('sim.ground.snowy') : `σ × ${n1(h.sigma_factor, 2)}`}
                 </p>
               ) : (
-                <p className="muted small">État du sol non téléchargé pour cette date.</p>
+                <p className="muted small">{t('sim.ground.noState')}</p>
               );
             })()}
             <div className="row">
@@ -1091,93 +1274,99 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
                   checked={project.settings.use_ground_state !== false}
                   onChange={(e) => set((s) => ({ ...s, use_ground_state: e.target.checked }))}
                 />
-                Tenir compte de l'état du sol
+                {t('sim.ground.use')}
               </label>
               <button onClick={fetchGround} disabled={busy === 'ground'}>
-                {busy === 'ground' ? 'Téléchargement…' : scene?.ground_hours ? 'Mettre à jour' : 'Télécharger'}
+                {busy === 'ground' ? t('sim.dl.busy') : scene?.ground_hours ? t('sim.dl.update') : t('sim.dl.download')}
               </button>
             </div>
           </section>
           <section className="card">
-            <h2>Végétation LiDAR HD</h2>
-            <p className="muted small">
-              Télécharge les nuages de points COPC autour de la sono (niveau de détail ≈ 2 m, environ 40 Mo par km²) : densité du
-              feuillage par voxels de 5 m × 2 m et rugosité du sol. Le feuillage mesuré remplace le forfait « feuillage dense » de
-              l'ISO 9613-2.
-            </p>
+            <h2>{t('sim.veg.title')}</h2>
+            <p className="muted small">{t('sim.veg.lede')}</p>
             {scene?.vegetation ? (
               <p className="small">
-                {scene.vegetation.tiles} dalles, {(scene.vegetation.points / 1e6).toFixed(1)} M points dans{' '}
-                {(scene.vegetation.radius_m / 1000).toFixed(1)} km — feuillage dense {n1(scene.vegetation.dense_foliage_km2, 2)} km²
-                (facteur moyen {n1(scene.vegetation.mean_foliage, 2)}), rugosité moyenne {n1(scene.vegetation.mean_roughness_m * 100, 0)} cm.
+                {t('sim.veg.summary', {
+                  tiles: scene.vegetation.tiles,
+                  mpts: num(scene.vegetation.points / 1e6, 1),
+                  km: num(scene.vegetation.radius_m / 1000, 1),
+                  dense: n1(scene.vegetation.dense_foliage_km2, 2),
+                  factor: n1(scene.vegetation.mean_foliage, 2),
+                  rough: n1(scene.vegetation.mean_roughness_m * 100, 0),
+                })}
               </p>
             ) : (
-              <p className="muted small">Pas encore téléchargée : forfait ISO (MNH ≥ 3 m = feuillage dense).</p>
+              <p className="muted small">{t('sim.veg.none')}</p>
             )}
             <div className="row">
               <label className="field">
-                <span>Rayon</span>
+                <span>{t('spots.radius')}</span>
                 <select value={vegRadius} onChange={(e) => setVegRadius(Number(e.target.value))}>
                   {[500, 1000, 1500, 2000, 3000].map((r) => (
                     <option key={r} value={r}>
-                      {r / 1000} km (≈ {Math.round((Math.PI * (r / 1000) ** 2 * 40) / 5) * 5} Mo)
+                      {num(r / 1000, 1)} km (≈ {Math.round((Math.PI * (r / 1000) ** 2 * 40) / 5) * 5} {t('units.mb')})
                     </option>
                   ))}
                 </select>
               </label>
               <button onClick={fetchVegetation} disabled={!!job}>
-                {scene?.vegetation ? 'Retélécharger' : 'Télécharger'}
+                {scene?.vegetation ? t('sim.dl.again') : t('sim.dl.download')}
               </button>
             </div>
           </section>
           <section className="card">
-            <h2>Calage sur mesures</h2>
-            <p className="muted small">
-              CSV (colonnes lat, lon, LAeq et/ou LCeq) ou GPX de sonomètre. Ajuste la dureté du sol, le gradient de célérité
-              (stabilité, vent) et un décalage de niveau sur la méthode d'ingénierie.
-            </p>
+            <h2>{t('sim.calib.title')}</h2>
+            <p className="muted small">{t('sim.calib.lede')}</p>
             {project.settings.calibration && (
               <p className="small">
-                Calage actif : sol σ × {n1(project.settings.calibration.sigma_scale, 2)}, gradient{' '}
-                {n1(project.settings.calibration.refraction.grad_t, 3)} + {n1(project.settings.calibration.refraction.grad_w, 3)} s⁻¹ (vent),{' '}
-                {signed(project.settings.calibration.offset_db)} dB — écart résiduel {n1(project.settings.calibration.rms_db, 1)} dB sur{' '}
-                {project.settings.calibration.n_points} points.
+                {t('sim.calib.active', {
+                  sigma: n1(project.settings.calibration.sigma_scale, 2),
+                  gt: n1(project.settings.calibration.refraction.grad_t, 3),
+                  gw: n1(project.settings.calibration.refraction.grad_w, 3),
+                  offset: signed(project.settings.calibration.offset_db),
+                  rms: n1(project.settings.calibration.rms_db, 1),
+                  n: project.settings.calibration.n_points,
+                })}
               </p>
             )}
             <div className="row">
               <button onClick={importMeasurements} disabled={busy === 'calibrate'}>
-                {busy === 'calibrate' ? 'Calage…' : 'Importer des mesures…'}
+                {busy === 'calibrate' ? t('sim.calib.busy') : t('sim.calib.import')}
               </button>
-              {project.settings.calibration && <button onClick={() => set((s) => ({ ...s, calibration: null }))}>Retirer le calage</button>}
+              {project.settings.calibration && <button onClick={() => set((s) => ({ ...s, calibration: null }))}>{t('sim.calib.remove')}</button>}
             </div>
             {calib && (
               <>
                 <p className="small">
-                  {calib.n_points} points{calib.n_ignored > 0 ? ` (${calib.n_ignored} ignorés)` : ''} — écart quadratique{' '}
-                  <b>{n1(calib.rms_before_db, 1)} → {n1(calib.rms_after_db, 1)} dB</b> (biais avant {signed(calib.bias_before_db)} dB)
+                  {t('sim.calib.points', { count: calib.n_points })}
+                  {calib.n_ignored > 0 ? ` ${t('sim.calib.ignored', { count: calib.n_ignored })}` : ''} — {t('sim.calib.rms')}{' '}
+                  <b>
+                    {n1(calib.rms_before_db, 1)} → {n1(calib.rms_after_db, 1)} dB
+                  </b>{' '}
+                  {t('sim.calib.bias', { db: signed(calib.bias_before_db) })}
                 </p>
                 <table className="small">
                   <tbody>
                     <tr>
-                      <td>Sol (facteur σ)</td>
+                      <td>{t('sim.calib.sigma')}</td>
                       <td>
                         × {n1(calib.sigma_scale.map, 2)} <span className="muted">(± {n1(calib.sigma_scale.sd, 2)} oct.)</span>
                       </td>
                     </tr>
                     <tr>
-                      <td>Gradient thermique</td>
+                      <td>{t('sim.calib.gradT')}</td>
                       <td>
                         {n1(calib.grad_t.map, 3)} s⁻¹ <span className="muted">(± {n1(calib.grad_t.sd, 3)})</span>
                       </td>
                     </tr>
                     <tr>
-                      <td>Gradient vent (vers {Math.round(calib.wind_toward_deg)}°)</td>
+                      <td>{t('sim.calib.gradW', { deg: Math.round(calib.wind_toward_deg) })}</td>
                       <td>
                         {n1(calib.grad_w.map, 3)} s⁻¹ <span className="muted">(± {n1(calib.grad_w.sd, 3)})</span>
                       </td>
                     </tr>
                     <tr>
-                      <td>Décalage de niveau</td>
+                      <td>{t('sim.calib.offset')}</td>
                       <td>
                         {signed(calib.offset_db.map)} dB <span className="muted">(± {n1(calib.offset_db.sd, 1)})</span>
                       </td>
@@ -1191,18 +1380,18 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
                 ))}
                 <div className="row">
                   <button className="primary" onClick={() => set((s) => ({ ...s, calibration: calib.calibration }))}>
-                    Appliquer au projet
+                    {t('sim.calib.apply')}
                   </button>
-                  <button onClick={() => setCalib(null)}>Masquer</button>
+                  <button onClick={() => setCalib(null)}>{t('sim.calib.hide')}</button>
                 </div>
               </>
             )}
           </section>
           <section className="card">
-            <h2>Exports (carte affichée : {METRICS.find((m) => m.key === metric)?.label})</h2>
+            <h2>{t('sim.export.title', { metric: METRICS.find((m) => m.key === metric)?.label ?? '' })}</h2>
             <div className="row wrap">
               <button disabled={!resultId} onClick={() => doExport('html')}>
-                Rapport HTML (imprimable en PDF)
+                {t('sim.export.html')}
               </button>
               <button disabled={!resultId} onClick={() => doExport('geotiff')}>
                 GeoTIFF
@@ -1211,26 +1400,24 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
                 GeoJSON
               </button>
             </div>
-            <p className="muted small">Le rapport inclut l'impact s'il a été évalué.</p>
+            <p className="muted small">{t('sim.export.note')}</p>
           </section>
           {scene && (
             <section className="card">
-              <h2>Zone</h2>
+              <h2>{t('sim.zone.title')}</h2>
               <dl className="kv">
-                <dt>Bâtiments</dt>
-                <dd>
-                  {scene.buildings.toLocaleString('fr-FR')} dont {scene.residential.toLocaleString('fr-FR')} habitations
-                </dd>
-                <dt>Habitants (Filosofi)</dt>
-                <dd>{scene.inhabitants.toFixed(0)}</dd>
-                <dt>Lieux sensibles</dt>
+                <dt>{t('sim.zone.buildings')}</dt>
+                <dd>{t('sim.zone.buildingsValue', { all: scene.buildings, res: scene.residential })}</dd>
+                <dt>{t('sim.zone.people')}</dt>
+                <dd>{num(scene.inhabitants, 0)}</dd>
+                <dt>{t('sim.zone.sensitive')}</dt>
                 <dd>{scene.sensitive}</dd>
                 <dt>ZNIEFF</dt>
                 <dd>{scene.znieff}</dd>
-                <dt>Sol</dt>
+                <dt>{t('sim.zone.ground')}</dt>
                 <dd>{scene.landcover}</dd>
-                <dt>Scène chargée en</dt>
-                <dd>{scene.load_ms.toFixed(0)} ms</dd>
+                <dt>{t('sim.zone.loaded')}</dt>
+                <dd>{num(scene.load_ms, 0)} ms</dd>
               </dl>
             </section>
           )}
@@ -1238,15 +1425,56 @@ export function SimPanel({ map, zone, onBack }: { map: maplibregl.Map; zone: Ope
       )}
 
       <button className="ghost" onClick={onBack}>
-        ← Retour à l'exploration
+        ← {t('sim.back')}
       </button>
     </>
   );
 }
 
+/** Bulle de survol : niveau au point et, sur un bâtiment, sa nature (BD TOPO). */
+function hoverContent(v: number | null, unit: string, b: Record<string, unknown> | undefined): HTMLElement {
+  const root = document.createElement('div');
+  const line = (text: string, cls?: string) => {
+    const d = document.createElement('div');
+    d.textContent = text;
+    if (cls) d.className = cls;
+    root.appendChild(d);
+  };
+  if (b) {
+    const usage = typeof b.usage === 'string' && b.usage && !b.usage.startsWith('Indifférenci') ? b.usage : null;
+    const nature = typeof b.nature === 'string' && b.nature && !b.nature.startsWith('Indifférenci') ? b.nature : null;
+    line(usage ?? nature ?? tr('sim.hover.building'), 'hp-title');
+    const details: string[] = [];
+    if (usage && nature) details.push(nature);
+    const lg = Number(b.logements);
+    if (Number.isFinite(lg) && lg > 0) details.push(tr('sim.hover.dwellings', { count: lg }));
+    const hh = Number(b.h);
+    if (Number.isFinite(hh) && hh > 0) details.push(tr('sim.hover.height', { m: Math.round(hh) }));
+    if (details.length) line(details.join(' · '), 'hp-sub');
+    line(b.res === true || b.res === 'true' ? tr('sim.hover.dwelling') : tr('sim.hover.nonRes'), 'hp-sub');
+  }
+  if (v !== null) line(`${v.toFixed(1)} ${unit}`, 'hp-db');
+  return root;
+}
+
+/** Légende flottante sur la carte : couleur → niveau. */
+function MapLegend({ offset, unit }: { offset: number; unit: string }) {
+  return (
+    <div className="map-legend" aria-label={tr('sim.legend')}>
+      <div className="ml-title">{unit}</div>
+      {[...PALETTE].reverse().map(([t, c], i) => (
+        <div key={t} className="ml-row">
+          <i style={{ background: c }} />
+          <span>{i === PALETTE.length - 1 ? `< ${PALETTE[1][0] + offset}` : `${t + offset}–${t + offset + 5}`}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Legend({ offset }: { offset: number }) {
   return (
-    <div className="legend-scale" aria-label="Légende des niveaux">
+    <div className="legend-scale" aria-label={tr('sim.legend')}>
       {PALETTE.map(([t, c]) => (
         <div key={t} style={{ background: c }} title={`≥ ${t + offset} dB`}>
           <span>{t + offset}</span>
@@ -1267,6 +1495,7 @@ function SpeakerEditor({
   onChange: (f: (s: SpeakerSpec) => SpeakerSpec) => void;
   onDelete: () => void;
 }) {
+  const { t } = useT();
   const [manual, setManual] = useState(false);
   const num = (k: keyof SpeakerSpec, step = 0.1, min?: number, max?: number) => (
     <input type="number" step={step} min={min} max={max} value={spk[k] as number} onChange={(e) => onChange((s) => ({ ...s, [k]: Number(e.target.value) }))} />
@@ -1276,7 +1505,7 @@ function SpeakerEditor({
     <section className="card">
       <h2>{spk.name}</h2>
       <label className="field">
-        <span>Modèle</span>
+        <span>{t('sim.spk.model')}</span>
         <select
           value={models.some((x) => x.id === m.id) ? m.id : '__custom'}
           onChange={(e) => {
@@ -1293,56 +1522,56 @@ function SpeakerEditor({
         </select>
       </label>
       <label className="field">
-        <span>Azimut {spk.azimuth_deg.toFixed(0)}°</span>
+        <span>{t('sim.spk.azimuth', { deg: Math.round(spk.azimuth_deg) })}</span>
         <input type="range" min={0} max={359} value={spk.azimuth_deg} onChange={(e) => onChange((s) => ({ ...s, azimuth_deg: Number(e.target.value) }))} />
       </label>
       <div className="grid3">
         <label className="field">
-          <span>Hauteur (m)</span>
+          <span>{t('sim.spk.height')}</span>
           {num('height_m', 0.1, 0, 30)}
         </label>
         <label className="field">
-          <span>Site (°)</span>
+          <span>{t('sim.spk.tilt')}</span>
           {num('tilt_deg', 1, -30, 30)}
         </label>
         <label className="field">
-          <span>Retard (ms)</span>
+          <span>{t('sim.spk.delay')}</span>
           {num('delay_ms', 0.05, 0, 200)}
         </label>
         <label className="field">
-          <span>Gain (dB)</span>
+          <span>{t('sim.spk.gain')}</span>
           {num('gain_db', 0.5, -40, 6)}
         </label>
         <label className="field">
-          <span>Polarité</span>
-          <button onClick={() => onChange((s) => ({ ...s, polarity: s.polarity < 0 ? 1 : -1 }))}>{spk.polarity < 0 ? 'Inversée' : 'Normale'}</button>
+          <span>{t('sim.spk.polarity')}</span>
+          <button onClick={() => onChange((s) => ({ ...s, polarity: s.polarity < 0 ? 1 : -1 }))}>{spk.polarity < 0 ? t('sim.spk.inverted') : t('sim.spk.normal')}</button>
         </label>
         <label className="field">
-          <span>État</span>
-          <button onClick={() => onChange((s) => ({ ...s, muted: !s.muted }))}>{spk.muted ? 'Coupée' : 'Active'}</button>
+          <span>{t('sim.spk.state')}</span>
+          <button onClick={() => onChange((s) => ({ ...s, muted: !s.muted }))}>{spk.muted ? t('sim.spk.muted') : t('sim.spk.active')}</button>
         </label>
       </div>
       <button className="ghost small" onClick={() => setManual((v) => !v)}>
-        {manual ? '▾' : '▸'} Saisie manuelle du modèle
+        {manual ? '▾' : '▸'} {t('sim.spk.manual')}
       </button>
       {manual && (
         <div className="grid3">
           {(
             [
-              ['max_spl_1m', 'SPL max 1 m (dB/oct.)'],
-              ['f_lo', 'f basse (Hz)'],
-              ['f_hi', 'f haute (Hz)'],
-              ['rolloff_db_oct', 'Pente (dB/oct.)'],
-              ['power_w', 'Puissance (W)'],
-            ] as [keyof SpeakerModel, string][]
+              ['max_spl_1m', 'sim.spk.maxSpl'],
+              ['f_lo', 'sim.spk.fLo'],
+              ['f_hi', 'sim.spk.fHi'],
+              ['rolloff_db_oct', 'sim.spk.slope'],
+              ['power_w', 'sim.spk.power'],
+            ] as [keyof SpeakerModel, TKey][]
           ).map(([k, label]) => (
             <label key={k} className="field">
-              <span>{label}</span>
+              <span>{t(label)}</span>
               <input
                 type="number"
                 value={m[k] as number}
                 onChange={(e) =>
-                  onChange((s) => ({ ...s, model: { ...s.model, [k]: Number(e.target.value), id: `${s.model.id.replace(/-custom$/, '')}-custom`, name: s.model.name.replace(/ \(modifié\)$/, '') + ' (modifié)' } }))
+                  onChange((s) => ({ ...s, model: { ...s.model, [k]: Number(e.target.value), id: `${s.model.id.replace(/-custom$/, '')}-custom`, name: s.model.name.replace(/ \(.+\)$/, '') + ` (${t('sim.spk.modified')})` } }))
                 }
               />
             </label>
@@ -1350,7 +1579,7 @@ function SpeakerEditor({
         </div>
       )}
       <button className="ghost danger" onClick={onDelete}>
-        Supprimer l'enceinte
+        {t('sim.spk.delete')}
       </button>
     </section>
   );
@@ -1367,21 +1596,22 @@ function ImpactView({
   setShow: (v: boolean) => void;
   onFocus: (b: { lon: number; lat: number }) => void;
 }) {
+  const { t, num } = useT();
   const worst = r.most_exposed;
   return (
     <>
       <section className="card">
-        <h2>Résultat</h2>
+        <h2>{t('sim.res.title')}</h2>
         <p className={r.margin_db < 0 ? 'big warn-text' : 'big ok-text'}>
-          Marge {signed(r.margin_db)} dB
-          <span className="small muted"> avant {r.thresholds_db[0]} dB d'émergence au bâtiment le plus exposé</span>
+          {t('sim.res.margin', { db: signed(r.margin_db) })}
+          <span className="small muted"> {t('sim.res.marginNote', { db: r.thresholds_db[0] })}</span>
         </p>
         <table className="tbl">
           <thead>
             <tr>
-              <th>Émergence dB(A)</th>
-              <th className="num">Bâtiments</th>
-              <th className="num">Habitants</th>
+              <th>{t('sim.res.emergence')}</th>
+              <th className="num">{t('sim.zone.buildings')}</th>
+              <th className="num">{t('sim.res.people')}</th>
             </tr>
           </thead>
           <tbody>
@@ -1398,34 +1628,36 @@ function ImpactView({
         </table>
         <label className="check">
           <input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} />
-          Afficher les habitations sur la carte
+          {t('sim.res.show')}
         </label>
         <p className="muted small">
-          {r.method} · {r.buildings.length} habitations · {r.compute_ms.toFixed(0)} ms
+          {r.method} · {t('sim.res.dwellings', { count: r.buildings.length })} · {num(r.compute_ms, 0)} ms
         </p>
       </section>
       {worst && (
         <section className="card">
-          <h2>Bâtiment le plus exposé</h2>
+          <h2>{t('sim.worst.title')}</h2>
           <dl className="kv">
-            <dt>Distance</dt>
+            <dt>{t('sim.worst.distance')}</dt>
             <dd>{worst.distance_m.toFixed(0)} m</dd>
-            <dt>Niveau façade</dt>
+            <dt>{t('sim.worst.facade')}</dt>
             <dd>
               {n1(worst.level_dba)} dB(A) · {n1(worst.level_dbc)} dB(C) ({worst.height_m} m)
             </dd>
-            <dt>Résiduel</dt>
+            <dt>{t('sim.worst.residual')}</dt>
             <dd>
               {n1(worst.residual_dba)} dB(A) · {n1(worst.residual_dbc)} dB(C)
             </dd>
-            <dt>Émergence</dt>
+            <dt>{t('sim.worst.emergence')}</dt>
             <dd>
               {signed(worst.emergence_dba)} dB(A) · {signed(worst.emergence_dbc)} dB(C)
             </dd>
-            <dt>Habitants</dt>
-            <dd>{worst.inhabitants.toFixed(1)}</dd>
+            <dt>{t('sim.res.people')}</dt>
+            <dd title={worst.inhabitants_estimated ? t('sim.worst.estimatedHint') : t('sim.worst.filosofiHint')}>
+              {worst.inhabitants_estimated ? t('sim.worst.estimated', { n: num(worst.inhabitants, 1) }) : num(worst.inhabitants, 1)}
+            </dd>
           </dl>
-          <p className="small muted">Émergence par octave (31,5 Hz → 8 kHz) :</p>
+          <p className="small muted">{t('sim.worst.octaves')}</p>
           <div className="octbars">
             {worst.emergence_oct.map((e, i) => (
               <div key={i} title={`${signed(e)} dB`}>
@@ -1435,19 +1667,19 @@ function ImpactView({
             ))}
           </div>
           <button className="small" onClick={() => onFocus(worst)}>
-            Centrer la carte
+            {t('sim.worst.center')}
           </button>
         </section>
       )}
       <section className="card">
-        <h2>Les plus exposés</h2>
+        <h2>{t('sim.top.title')}</h2>
         <table className="tbl">
           <thead>
             <tr>
-              <th>Dist.</th>
+              <th>{t('sim.top.dist')}</th>
               <th className="num">dB(A)</th>
-              <th className="num">Ém. A</th>
-              <th className="num">Ém. C</th>
+              <th className="num">{t('sim.top.emA')}</th>
+              <th className="num">{t('sim.top.emC')}</th>
             </tr>
           </thead>
           <tbody>
@@ -1464,15 +1696,15 @@ function ImpactView({
       </section>
       {(r.sensitive.length > 0 || r.fauna.length > 0) && (
         <section className="card">
-          <h2>Lieux sensibles et faune</h2>
+          <h2>{t('sim.sens.title')}</h2>
           {r.sensitive.map((s, i) => (
             <p key={i} className="small">
-              {s.name} <span className="muted">({s.kind})</span> : {n1(s.level_dba)} dB(A), émergence {signed(s.emergence_dba)}
+              {s.name} <span className="muted">({s.kind})</span> : {t('sim.sens.line', { db: n1(s.level_dba), em: signed(s.emergence_dba) })}
             </p>
           ))}
           {r.fauna.map((f, i) => (
             <p key={`f${i}`} className="small">
-              ZNIEFF {f.level} « {f.name} » : {f.area_above_45_km2.toFixed(2)} km² &gt; 45 dB(A), max {n1(f.max_dba)}
+              {t('sim.sens.znieff', { level: f.level, name: f.name, km2: num(f.area_above_45_km2, 2), max: n1(f.max_dba) })}
             </p>
           ))}
         </section>
@@ -1482,34 +1714,35 @@ function ImpactView({
 }
 
 function SizingView({ r }: { r: SizingReport }) {
+  const { t, num } = useT();
   return (
     <>
       <dl className="kv">
-        <dt>Centre (actuel)</dt>
+        <dt>{t('sim.size.center')}</dt>
         <dd>
           {n1(r.center_dba)} dB(A) · {n1(r.center_dbc)} dB(C)
         </dd>
-        <dt>Max (gains à 0)</dt>
+        <dt>{t('sim.size.max')}</dt>
         <dd>
           {n1(r.max_dba)} dB(A) · {n1(r.max_dbc)} dB(C)
         </dd>
-        <dt>Subs nécessaires</dt>
+        <dt>{t('sim.size.subs')}</dt>
         <dd>
-          {r.subs_needed} <span className="muted">(actuel {r.subs_now})</span>
+          {r.subs_needed} <span className="muted">{t('sim.size.now', { n: r.subs_now })}</span>
         </dd>
-        <dt>Têtes nécessaires</dt>
+        <dt>{t('sim.size.tops')}</dt>
         <dd>
-          {r.tops_needed} <span className="muted">(actuel {r.tops_now})</span>
+          {r.tops_needed} <span className="muted">{t('sim.size.now', { n: r.tops_now })}</span>
         </dd>
-        <dt>Amplification</dt>
-        <dd>{(r.power_w / 1000).toFixed(1)} kW</dd>
-        <dt>Headroom</dt>
+        <dt>{t('sim.size.amp')}</dt>
+        <dd>{num(r.power_w / 1000, 1)} kW</dd>
+        <dt>{t('sim.size.headroom')}</dt>
         <dd>
           {signed(r.headroom_dba)} dB(A) · {signed(r.headroom_dbc)} dB(C)
         </dd>
-        <dt>Homogénéité</dt>
+        <dt>{t('sim.size.uniformity')}</dt>
         <dd>
-          σ {r.uniformity_std_db.toFixed(1)} dB · étendue {r.uniformity_range_db.toFixed(1)} dB ({r.samples} points)
+          {t('sim.size.uniformityValue', { sd: num(r.uniformity_std_db, 1), range: num(r.uniformity_range_db, 1), n: r.samples })}
         </dd>
       </dl>
       {r.notes.map((n, i) => (
