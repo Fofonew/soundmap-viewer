@@ -468,7 +468,10 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(header("range", "bytes=0-3"))
-            .and(header("user-agent", "soundmap-viewer/0.1.0"))
+            .and(header(
+                "user-agent",
+                concat!("soundmap-viewer/", env!("CARGO_PKG_VERSION")),
+            ))
             .respond_with(
                 ResponseTemplate::new(206)
                     .insert_header("content-range", "bytes 0-3/1000")
