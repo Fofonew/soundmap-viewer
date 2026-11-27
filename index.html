@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manuel SoundMap</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f4f2ee;
+  --surface: #ffffff;
+  --surface-2: #ebe8e2;
+  --line: #d9d4ca;
+  --text: #1a1c20;
+  --muted: #5d6068;
+  --accent: #e0620a;
+  --accent-ink: #ffffff;
+  --accent-soft: #fde6d4;
+  --good: #1f8a4c;
+  --warn: #b4232a;
+  --code-bg: #ebe8e2;
+  --shadow: 0 1px 2px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.08);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d0f12;
+    --surface: #15181d;
+    --surface-2: #1c2027;
+    --line: #2a2f38;
+    --text: #e8e6e1;
+    --muted: #9a9ea6;
+    --accent: #ff7a1a;
+    --accent-ink: #160b02;
+    --accent-soft: #2b1a0c;
+    --good: #4cc47c;
+    --warn: #ff6b6b;
+    --code-bg: #1c2027;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d0f12;
+  --surface: #15181d;
+  --surface-2: #1c2027;
+  --line: #2a2f38;
+  --text: #e8e6e1;
+  --muted: #9a9ea6;
+  --accent: #ff7a1a;
+  --accent-ink: #160b02;
+  --accent-soft: #2b1a0c;
+  --good: #4cc47c;
+  --warn: #ff6b6b;
+  --code-bg: #1c2027;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 400 17px/1.6 Barlow, system-ui, sans-serif;
+}
+a { color: var(--accent); text-underline-offset: 3px; }
+code, kbd, .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: .86em; }
+code { background: var(--code-bg); padding: .1em .35em; border-radius: 4px; overflow-wrap: anywhere; }
+kbd {
+  display: inline-block; min-width: 1.6em; text-align: center;
+  padding: .05em .45em; border: 1px solid var(--line); border-bottom-width: 2px;
+  border-radius: 5px; background: var(--surface); font-size: .8em; line-height: 1.5;
+}
+h1, h2, h3 { font-family: 'Barlow Condensed', Barlow, sans-serif; letter-spacing: .02em; line-height: 1.1; text-wrap: balance; }
+h2 { font-size: 34px; margin: 0 0 6px; text-transform: uppercase; }
+h3 { font-size: 21px; margin: 28px 0 8px; text-transform: uppercase; }
+p, li { text-wrap: pretty; }
+
+.rainbow { height: 3px; background: linear-gradient(90deg, #2c7bb6, #4cc47c, #f3d34a, #ff7a1a, #d7191c, #6a1b6a); }
+
+.layout { display: grid; grid-template-columns: 1fr; max-width: 1240px; margin: 0 auto; }
+@media (min-width: 1040px) { .layout { grid-template-columns: 240px 1fr; gap: 40px; padding: 0 24px; } }
+
+nav.toc { padding: 16px; border-bottom: 1px solid var(--line); background: var(--bg); }
+nav.toc .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+nav.toc .brand b { font: 700 22px/1 'Barlow Condensed', sans-serif; letter-spacing: .06em; }
+nav.toc .brand small { display: block; font: 400 11px/1.4 'JetBrains Mono', monospace; color: var(--muted); letter-spacing: .12em; }
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+nav.toc li a {
+  display: flex; gap: 8px; align-items: baseline; padding: 6px 10px; border-radius: 6px;
+  color: var(--text); text-decoration: none; font-size: 15px; background: var(--surface);
+  border: 1px solid var(--line);
+}
+nav.toc li a span { font: 600 11px 'JetBrains Mono', monospace; color: var(--accent); }
+nav.toc li a:hover { border-color: var(--accent); }
+nav.toc .group { display: none; }
+@media (min-width: 1040px) {
+  nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto; border: 0; padding: 28px 0; }
+  nav.toc ol { display: block; }
+  nav.toc li a { background: none; border: 0; padding: 5px 8px; }
+  nav.toc li a:hover { background: var(--surface-2); }
+  nav.toc .group { display: block; margin: 18px 8px 4px; font: 600 11px 'JetBrains Mono', monospace; letter-spacing: .14em; color: var(--muted); text-transform: uppercase; }
+}
+
+main { padding: 0 16px 80px; min-width: 0; }
+@media (min-width: 1040px) { main { padding: 0 0 120px; } }
+
+.hero { padding: 40px 0 24px; }
+.hero .kicker { font: 600 12px 'JetBrains Mono', monospace; letter-spacing: .16em; color: var(--accent); text-transform: uppercase; }
+.hero h1 { font-size: clamp(40px, 7vw, 68px); margin: 8px 0 12px; text-transform: uppercase; }
+.hero p.lede { font-size: 20px; max-width: 760px; color: var(--muted); margin: 0 0 20px; }
+.hero .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin: 24px 0 8px; }
+.hero .cards a {
+  display: block; padding: 14px 16px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line);
+  text-decoration: none; color: var(--text); transition-property: border-color, transform; transition-duration: .15s;
+}
+.hero .cards a:hover { border-color: var(--accent); transform: translateY(-1px); }
+.hero .cards b { display: block; font: 700 18px 'Barlow Condensed', sans-serif; text-transform: uppercase; letter-spacing: .04em; }
+.hero .cards span { font-size: 14px; color: var(--muted); }
+
+section.doc { padding-top: 48px; margin-top: 32px; border-top: 1px solid var(--line); scroll-margin-top: 8px; }
+.num { display: inline-block; font: 600 12px 'JetBrains Mono', monospace; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 6px; margin-bottom: 10px; }
+.sub { color: var(--muted); font-size: 18px; margin: 0 0 20px; max-width: 760px; }
+
+figure.shot { margin: 20px 0 8px; }
+figure.shot img {
+  display: block; width: 100%; height: auto; border-radius: 10px; box-shadow: var(--shadow);
+  outline: 1px solid rgba(127,127,127,.18); outline-offset: -1px; background: #0d0f12; aspect-ratio: 1100 / 707;
+}
+figure.shot.w1000 img { aspect-ratio: 1000 / 643; }
+figure.shot figcaption { font-size: 14px; color: var(--muted); margin-top: 8px; }
+
+.cols { display: grid; gap: 16px 32px; grid-template-columns: 1fr; }
+@media (min-width: 760px) { .cols { grid-template-columns: 1fr 1fr; } }
+
+dl.fields { margin: 0; }
+dl.fields dt { font-weight: 600; margin-top: 12px; }
+dl.fields dd { margin: 2px 0 0; color: var(--text); }
+dl.fields dd .m { color: var(--muted); }
+
+.note, .tip, .warn {
+  border-radius: 10px; padding: 14px 16px; margin: 18px 0; background: var(--surface); border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+}
+.note b:first-child, .tip b:first-child, .warn b:first-child { font: 700 13px 'Barlow Condensed', sans-serif; letter-spacing: .1em; text-transform: uppercase; display: block; margin-bottom: 2px; }
+.tip { border-left-color: var(--good); }
+.warn { border-left-color: var(--warn); }
+
+ol.steps { counter-reset: s; list-style: none; padding: 0; margin: 16px 0; }
+ol.steps > li { counter-increment: s; position: relative; padding: 0 0 18px 48px; }
+ol.steps > li::before {
+  content: counter(s); position: absolute; left: 0; top: 0; width: 32px; height: 32px; border-radius: 50%;
+  background: var(--accent); color: var(--accent-ink); font: 700 16px/32px 'Barlow Condensed', sans-serif; text-align: center;
+}
+ol.steps > li::after { content: ''; position: absolute; left: 15px; top: 36px; bottom: 4px; width: 2px; background: var(--line); }
+ol.steps > li:last-child::after { display: none; }
+ol.steps b { display: block; }
+
+.table-wrap { overflow-x: auto; margin: 14px 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 600 12px 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); background: var(--surface-2); }
+tr:last-child td { border-bottom: 0; }
+td.k { white-space: nowrap; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.scale { display: flex; height: 12px; border-radius: 3px; overflow: hidden; margin: 8px 0 4px; max-width: 520px; }
+.scale i { flex: 1; }
+.scale-l { display: flex; justify-content: space-between; max-width: 520px; font: 400 11px 'JetBrains Mono', monospace; color: var(--muted); }
+
+.compare { display: grid; gap: 12px; grid-template-columns: 1fr; margin: 16px 0; }
+@media (min-width: 760px) { .compare { grid-template-columns: 1fr 1fr; } }
+.compare > div { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.compare h4 { margin: 0 0 6px; font: 700 18px 'Barlow Condensed', sans-serif; text-transform: uppercase; letter-spacing: .04em; }
+.compare ul { margin: 0; padding-left: 18px; }
+
+svg.diagram { width: 100%; height: auto; display: block; margin: 12px 0; }
+svg.diagram text { font-family: Barlow, sans-serif; font-size: 13px; fill: var(--muted); }
+
+footer { color: var(--muted); font-size: 14px; margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<div class="rainbow"></div>
+<div class="layout">
+<nav class="toc" aria-label="Sommaire">
+  <div class="brand">
+    <svg width="26" height="22" viewBox="0 0 26 22" aria-hidden="true"><rect x="0" y="14" width="4" height="8" fill="#4cc47c"/><rect x="7" y="9" width="4" height="13" fill="#f3d34a"/><rect x="14" y="4" width="4" height="18" fill="#ff7a1a"/><rect x="21" y="0" width="4" height="22" fill="#d7191c"/></svg>
+    <div><b>SOUNDMAP</b><small>MANUEL</small></div>
+  </div>
+  <ol>
+    <li class="group">Démarrer</li>
+    <li><a href="#demarrer"><span>00</span>Prise en main</a></li>
+    <li><a href="#mots"><span>··</span>Vocabulaire</a></li>
+    <li class="group">Étude de site</li>
+    <li><a href="#sites"><span>01</span>Sélection de site</a></li>
+    <li><a href="#zone"><span>02</span>Zone de travail</a></li>
+    <li><a href="#calques"><span>03</span>Calques</a></li>
+    <li class="group">Simulation</li>
+    <li><a href="#systeme"><span>04</span>Système</a></li>
+    <li><a href="#carte"><span>05</span>Carte</a></li>
+    <li><a href="#bf"><span>06</span>Basses fréq.</a></li>
+    <li><a href="#impact"><span>07</span>Impact</a></li>
+    <li><a href="#dim"><span>08</span>Dimensionnement</a></li>
+    <li><a href="#projet"><span>09</span>Projet</a></li>
+    <li class="group">Comprendre</li>
+    <li><a href="#physique"><span>10</span>Aperçu ou GFPE</a></li>
+    <li><a href="#classement"><span>11</span>Classement des sites</a></li>
+    <li class="group">Référence</li>
+    <li><a href="#fichiers"><span>12</span>Fichiers et mises à jour</a></li>
+    <li><a href="#raccourcis"><span>13</span>Raccourcis</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="hero">
+  <div class="kicker">SoundMap · manuel</div>
+  <h1>Étude d'impact sonore en plein air</h1>
+  <p class="lede">SoundMap simule un système de sonorisation sur le relief réel et estime les niveaux reçus par les riverains, en particulier dans le grave et de nuit. Il sert à choisir un site, dimensionner le système et documenter l'impact d'un événement.</p>
+  <figure class="shot"><img src="media/sim.webp" alt="Vue 3D d'une zone : niveaux sonores en dB(A) sur le relief, panneau du système à gauche" width="1100" height="707"></figure>
+  <div class="cards">
+    <a href="#demarrer"><b>Prise en main</b><span>Du choix du site à l'évaluation de l'impact.</span></a>
+    <a href="#systeme"><b>Système</b><span>Blocs, sélection, raccourcis.</span></a>
+    <a href="#physique"><b>Aperçu ou GFPE</b><span>Pourquoi les deux cartes diffèrent.</span></a>
+    <a href="#fichiers"><b>Fichiers</b><span>Projets, zones, mises à jour.</span></a>
+  </div>
+</header>
+
+<section class="doc" id="demarrer">
+  <span class="num">00</span>
+  <h2>Prise en main</h2>
+  <ol class="steps">
+    <li><b>Localiser la zone</b>Barre de recherche, en haut à gauche : commune ou adresse.</li>
+    <li><b>Sélectionner un site</b><em>Sélection de site</em> → <em>Rechercher des sites</em>. <a href="#sites">Fiche 01</a></li>
+    <li><b>Télécharger la zone</b>Clic sur un site, puis <em>Zone de travail</em> : rayon, date de l'événement, <em>Télécharger la zone</em>. La simulation fonctionne ensuite hors ligne. <a href="#zone">Fiche 02</a></li>
+    <li><b>Implanter le système</b><em>Ouvrir en 3D</em>, onglet <em>Système</em> : blocs de subs et de têtes, zone public. <a href="#systeme">Fiche 04</a></li>
+    <li><b>Calculer les basses fréquences</b>Onglet <em>Basses fréq.</em> → <em>Lancer le calcul</em>. <a href="#bf">Fiche 06</a></li>
+    <li><b>Évaluer l'impact</b>Onglet <em>Impact</em> → <em>Évaluer l'impact (GFPE)</em>. Si la marge est insuffisante : orientation, montage des subs ou optimiseur (onglet <em>Dimens.</em>), puis nouveau calcul. <a href="#impact">Fiche 07</a></li>
+  </ol>
+  <h3>Projets</h3>
+  <figure class="shot"><img src="media/welcome.webp" alt="Écran d'accueil des projets : nouveau projet, ouvrir, importer, projets en cartes" width="1100" height="707" loading="lazy"><figcaption>Au lancement : nouveau projet, ouvrir, importer, et les projets de cet ordinateur.</figcaption></figure>
+  <ul>
+    <li><b>Nouveau projet</b> : étude de site depuis la vue France.</li>
+    <li><b>Ouvrir un projet…</b> : fichier <code>.smproj</code> dont la zone est sur cet ordinateur.</li>
+    <li><b>Importer un projet…</b> : projet d'un autre poste ; sa zone est préparée autour du système (5 km), téléchargée, puis le projet s'ouvre.</li>
+    <li>Sur chaque carte : ouvrir (clic), <em>Renommer</em>, <em>Exporter</em>, <em>Suppr.</em> Une zone incomplète se reprend d'un clic.</li>
+  </ul>
+  <p>Le logo et <em>Mes projets</em> ramènent à cet écran. <em>Afficher au démarrage</em> le masque au lancement.</p>
+  <figure class="shot"><img src="media/home.webp" alt="Étude de site : recherche, sélection de site, zone de travail, calques" width="1100" height="707" loading="lazy"><figcaption>Étude de site, après « Nouveau projet ».</figcaption></figure>
+</section>
+
+<section class="doc" id="mots">
+  <span class="num">··</span>
+  <h2>Vocabulaire</h2>
+  <div class="table-wrap"><table>
+    <tbody>
+      <tr><td class="k"><b>dB(A)</b></td><td>Niveau pondéré selon l'oreille, peu sensible au grave. Utilisé pour la zone public et l'émergence.</td></tr>
+      <tr><td class="k"><b>dB(C)</b></td><td>Niveau qui conserve le grave. Indicateur principal chez les riverains.</td></tr>
+      <tr><td class="k"><b>Aperçu</b></td><td>Calcul instantané (méthode d'ingénierie), fiable près du système et dans l'aigu.</td></tr>
+      <tr><td class="k"><b>GFPE</b></td><td>Calcul de propagation du grave (25 à 200 Hz) sur le relief réel, avec la météo de la nuit. <a href="#physique">Détails</a></td></tr>
+      <tr><td class="k"><b>AROME</b></td><td>Modèle de prévision de Météo-France : vent et température en altitude.</td></tr>
+      <tr><td class="k"><b>Résiduel</b></td><td>Bruit de fond sans l'événement. Environ 25 dB(A) la nuit en zone rurale.</td></tr>
+      <tr><td class="k"><b>Émergence</b></td><td>Écart entre le niveau avec l'événement et le résiduel. +10 dB est perçu comme deux fois plus fort.</td></tr>
+      <tr><td class="k"><b>Médiane / P90</b></td><td>Scénario météo typique / défavorable (dépassé une fois sur dix).</td></tr>
+      <tr><td class="k"><b>Isophones</b></td><td>Courbes d'égal niveau, tous les 5 dB.</td></tr>
+      <tr><td class="k"><b>Cardioïde / end-fire</b></td><td>Montages de subs (retard, polarité) qui réduisent l'émission vers l'arrière ou les côtés.</td></tr>
+      <tr><td class="k"><b>ZNIEFF</b></td><td>Zone naturelle d'intérêt écologique, faunistique et floristique.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="doc" id="sites">
+  <span class="num">01</span>
+  <h2>Sélection de site</h2>
+  <p class="sub">Criblage autour du centre de la carte, ou du système s'il est placé. Seuls les terrains plats, dégagés et desservis sont retenus.</p>
+  <figure class="shot w1000"><img src="media/spots.webp" alt="Recherche autour d'une commune, liste des sites, évaluation d'un emplacement, ouverture du premier site" width="1000" height="643" loading="lazy"><figcaption>Recherche sur 10 km à 125 dB(C), évaluation d'un emplacement, puis ouverture du premier site. Temps de calcul coupé.</figcaption></figure>
+  <h3>Méthode</h3>
+  <div class="table-wrap"><table>
+    <tbody>
+      <tr><td class="k"><b>Grille</b></td><td>Grands terrains dégagés sur 10 à 30 km, clairières de la BD TOPO.</td></tr>
+      <tr><td class="k"><b>Chemins</b></td><td>Points tous les 150 m le long des chemins et en bout de chemin ; terrain dégagé et pente mesurés au LiDAR (2 m). Trouve les petites clairières et places de dépôt en forêt. 10 km au plus.</td></tr>
+      <tr><td class="k"><b>Similarité</b></td><td>Sites qui ressemblent à vos sites de référence : niveau chez le riverain, distance au premier habitant, pente, terrain dégagé, boisement, accès, bout de chemin, parcelle agricole. 10 km au plus.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="cols">
+    <dl class="fields">
+      <dt>Rayon</dt><dd>Grille : 10, 20 ou 30 km. Chemins et Similarité : 3, 5 ou 10 km.</dd>
+      <dt>Niveau du système</dt><dd>Niveau continu dans le grave, en dB(C) à 1 m. <span class="m">Repères : 1 sub 18" ≈ 119 · 2 ≈ 125 · 4 ≈ 131 · 8 ≈ 137. Méthode d'estimation : <em>Comment connaître ce niveau ?</em> sous les champs.</span></dd>
+      <dt>Seuil</dt><dd>Niveau extérieur en façade au-delà duquel un habitant est compté exposé. <span class="m">50 dB(C) par défaut.</span></dd>
+    </dl>
+    <dl class="fields">
+      <dt>Vérifier le terrain</dt><dd>Contrôle automatique sur les données IGN : clairière et voie d'accès.</dd>
+      <dt>Critères du terrain</dt><dd>Gabarit grande ou petite jauge, diamètre de la clairière (Ø 60 m), distance à la voie (300 m), types de voies, occupations exclues (bois, forêt ouverte, vignes, vergers, landes, parcelles agricoles déclarées au choix), déplacement permis (250 m). <span class="m">Les haies ne sont pas bloquantes. Petite jauge : Ø 24 m, voie à 100 m, 119 dB(C).</span></dd>
+      <dt>Premier voisin à</dt><dd>Les sites ayant une habitation plus proche passent en dernier. <span class="m">500 m par défaut.</span></dd>
+    </dl>
+  </div>
+  <h3>Résultats</h3>
+  <p>Pour chaque site : niveau de nuit chez le riverain le plus exposé et sa distance (calcul GFPE, inversion de température), habitants exposés, pente, accès, boisement. Un clic place le système sur le site et ouvre la fiche de la parcelle.</p>
+  <div class="note"><b>Ordres de grandeur</b>Grave reçu en façade, de nuit (valeurs indicatives) :
+    <div class="table-wrap" style="margin:10px 0 4px"><table>
+      <thead><tr><th>Niveau</th><th>Perception</th></tr></thead>
+      <tbody>
+        <tr><td class="k">&lt; 50 dB(C)</td><td>À peine perceptible à l'intérieur. Seuil par défaut.</td></tr>
+        <tr><td class="k">50–60 dB(C)</td><td>Audible à l'intérieur, fenêtres fermées.</td></tr>
+        <tr><td class="k">60–70 dB(C)</td><td>Nettement audible toute la nuit. Plaintes probables.</td></tr>
+        <tr><td class="k">&gt; 70 dB(C)</td><td>Basses ressenties dans le bâti.</td></tr>
+      </tbody>
+    </table></div>
+    Pour descendre : baisser le niveau, réorienter le système, ou élargir la recherche.</div>
+  <h3>Méthode Chemins</h3>
+  <figure class="shot w1000"><img src="media/tracks.webp" alt="Méthode Chemins en forêt : gabarit petite jauge, recherche sur 5 km, petites clairières mesurées au LiDAR" width="1000" height="643" loading="lazy"><figcaption>Gabarit petite jauge, rayon 5 km : points candidats le long des chemins, clairières de Ø 24 m et plus mesurées au LiDAR.</figcaption></figure>
+  <h3>Sites de référence</h3>
+  <figure class="shot w1000"><img src="media/similar.webp" alt="Notation d'un site apprécié et d'un site à éviter, puis recherche par similarité" width="1000" height="643" loading="lazy"><figcaption>✓ sur un site, ✕ sur un autre, puis méthode Similarité : chaque site affiche sa ressemblance.</figcaption></figure>
+  <p>✓ (apprécié) ou ✕ (à éviter) sur un site proposé ou un emplacement évalué. Le site est analysé (quelques secondes) puis ajouté à la liste <em>Sites de référence</em>, utilisée par la méthode Similarité. Les sites notés restent sur cet ordinateur.</p>
+  <h3>Évaluer un emplacement</h3>
+  <p><em>Évaluer un emplacement</em>, puis clic sur la carte. L'emplacement passe les mêmes critères ; le panneau indique la raison de son classement : pente, voisin trop proche, boisement, accès, ou emplacement situé entre deux points de la grille de 500 m.</p>
+</section>
+
+<section class="doc" id="zone">
+  <span class="num">02</span>
+  <h2>Zone de travail</h2>
+  <p class="sub">Téléchargement des données nécessaires au calcul, autour du point de diffusion.</p>
+  <figure class="shot w1000"><img src="media/zone.webp" alt="Placement du système, rayon d'étude, nom de la zone, estimation du téléchargement" width="1000" height="643" loading="lazy"><figcaption>Placement du système, rayon d'étude, nom. L'estimation suit les réglages.</figcaption></figure>
+  <dl class="fields">
+    <dt>Placer le système</dt><dd><em>Placer le système</em> (ou <em>Déplacer le système</em>), puis clic sur la carte. Un clic sur un site de la liste a le même effet.</dd>
+    <dt>Rayon d'étude</dt><dd>1 à 10 km. <span class="m">Relief à 0,5 m jusqu'à 500 m, 1 m jusqu'à 2 km, 5 m au-delà.</span></dd>
+    <dt>Nom et date</dt><dd>La date de l'événement détermine la prévision météo AROME utilisée. Par défaut : aujourd'hui. Pour une date lointaine, retélécharger la météo quelques jours avant.</dd>
+    <dt>Estimation</dt><dd>Volume par catégorie, place sur le disque, durée. <span class="m">5 km : 300 à 400 Mo, 3 à 4 minutes.</span></dd>
+  </dl>
+  <p>Une fois la zone téléchargée, la simulation fonctionne hors ligne. La recherche de sites, le sol et la végétation LiDAR (onglet Projet) nécessitent une connexion. Un téléchargement interrompu reprend avec <em>Reprendre</em>. Le projet apparaît ensuite sur l'écran d'accueil ; <em>Ouvrir en 3D</em> l'ouvre directement.</p>
+</section>
+
+<section class="doc" id="calques">
+  <span class="num">03</span>
+  <h2>Calques</h2>
+  <figure class="shot w1000"><img src="media/calques.webp" alt="Plan IGN, propriétés des parcelles, secours et sécurité" width="1000" height="643" loading="lazy"><figcaption>Plan IGN, propriétés des parcelles, secours et sécurité.</figcaption></figure>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Calque</th><th>Contenu</th></tr></thead>
+    <tbody>
+      <tr><td class="k">Satellite / Plan IGN</td><td>Fond de carte.</td></tr>
+      <tr><td class="k">Noms de lieux</td><td>Communes, lieux-dits.</td></tr>
+      <tr><td class="k">Propriétés</td><td>Parcelles colorées par type de propriétaire, pour identifier l'interlocuteur (commune, État, groupement, société…). Visible à zoom proche. Les particuliers ne sont pas publiés.</td></tr>
+      <tr><td class="k">Secours et sécurité</td><td>Caserne de pompiers, hôpital, gendarmerie ou commissariat les plus proches (40 km, à vol d'oiseau), pour le dossier de sécurité.</td></tr>
+      <tr><td class="k">Dalles LiDAR HD</td><td>Couverture du relief LiDAR de l'IGN.</td></tr>
+    </tbody>
+  </table></div>
+  <p><em>Réinitialiser l'affichage et les réglages</em> rétablit les calques et les critères par défaut et revient à la vue initiale (système et résultats effacés ; zones et projets conservés).</p>
+</section>
+
+<section class="doc" id="systeme">
+  <span class="num">04</span>
+  <h2>Système</h2>
+  <figure class="shot"><img src="media/bloc.webp" alt="Bloc de 8 subs empilés par 2, puis 2 têtes à 4 m d'entraxe" width="1100" height="707" loading="lazy"><figcaption>8 subs empilés par 2, puis 2 têtes à 400 cm d'entraxe.</figcaption></figure>
+  <h3>Ajouter des enceintes</h3>
+  <dl class="fields">
+    <dt>Modèle</dt><dd>Modèles fournis (Sub 18", Sub 2×18", Top 15" + 2", line array…) ou modèles personnels.</dd>
+    <dt>Nombre · Empilées par</dt><dd>8 et 2 : 4 colonnes de 2. <span class="m">Forme et encombrement affichés sous les champs.</span></dd>
+    <dt>Entraxe</dt><dd>Vide : boîtes jointives. Sinon, distance de centre à centre en cm.</dd>
+    <dt>Hauteur du bas</dt><dd>0 m pour les subs, 2,1 m par défaut pour les têtes.</dd>
+    <dt>Placer sur la carte</dt><dd>Un clic par bloc, Échap pour terminer. Le bloc prend l'orientation du système ; la poignée ⟳ le fait pivoter.</dd>
+    <dt>Système de référence</dt><dd>4 subs 18" et 2 têtes au point de diffusion.</dd>
+    <dt>Mes enceintes</dt><dd><em>+ Nouveau modèle</em> : saisie d'après la fiche technique (niveau max, bande passante, directivité, puissance).</dd>
+  </dl>
+  <h3>Sélectionner et modifier</h3>
+  <figure class="shot"><img src="media/sel.webp" alt="Sélection au cadre, déplacement, flèches, annulation, copier-coller" width="1100" height="707" loading="lazy"><figcaption>Maj + glisser, déplacement, Maj+flèche (1 m), Ctrl+Z ; puis Ctrl+clic sur deux têtes, Ctrl+C, Ctrl+V.</figcaption></figure>
+  <p>La liste <em>Enceintes</em> regroupe les boîtes par bloc. Pour un bloc : modèle, orientation, site (inclinaison), retard, gain, polarité, état. Pour une enceinte seule : les mêmes réglages et la hauteur. <em>Grouper en bloc</em> rassemble des enceintes posées séparément. Voir aussi les <a href="#raccourcis">raccourcis</a>.</p>
+  <h3>Zone public</h3>
+  <p>Polygone de la zone d'écoute : un clic par sommet, puis <em>Terminer</em>. Utilisé par le dimensionnement, l'optimiseur et le rapport.</p>
+</section>
+
+<section class="doc" id="carte">
+  <span class="num">05</span>
+  <h2>Carte</h2>
+  <figure class="shot"><img src="media/carte.webp" alt="dB(A), dB(C), 63 Hz, isophones, exagération du relief, coupe du terrain" width="1100" height="707" loading="lazy"><figcaption>dB(C), 63 Hz, dB(A) ; isophones ; relief ×2,5 ; coupe vers une habitation.</figcaption></figure>
+  <dl class="fields">
+    <dt>Calcul affiché</dt><dd><em>Aperçu rapide</em> ou <em>Basses fréq. (GFPE)</em>, dès qu'un calcul GFPE existe. <a href="#physique">Différence</a></dd>
+    <dt>Indicateur</dt><dd>dB(A), dB(C), dB(Z), ou bande d'octave de 31,5 Hz à 8 kHz.</dd>
+    <dt>Variante</dt><dd>En GFPE : médiane, P90, ou un scénario météo.</dd>
+    <dt>Opacité · Isophones</dt><dd>Transparence de la carte ; courbes tous les 5 dB.</dd>
+  </dl>
+  <p>L'échelle de couleurs dépend de l'indicateur : se reporter à la légende de la carte.</p>
+  <h3>Relief</h3>
+  <p>Ombrage par-dessus les niveaux, exagération ×1 à ×3 (affichage seulement), <em>Vue inclinée</em> / <em>Vue de dessus</em>. Clic droit + glisser (ou Ctrl + glisser) pour tourner la carte.</p>
+  <h3>Coupe du terrain</h3>
+  <p><em>Choisir un point</em>, puis clic sur la carte : profil du sol entre le système et ce point, niveau reçu en dB(A) et dB(C), spectre par octave. <em>Écouter ce point</em> restitue une approximation du signal reçu.</p>
+</section>
+
+<section class="doc" id="bf">
+  <span class="num">06</span>
+  <h2>Basses fréquences (GFPE)</h2>
+  <p class="sub">Calcul de référence pour le grave, de 25 à 200 Hz : 360 directions, relief et sol réels, profil météo de la nuit. Sur carte graphique si disponible.</p>
+  <figure class="shot"><img src="media/gfpe.webp" alt="Calcul GFPE, comparaison Aperçu / GFPE en dB(C), tableau des scénarios" width="1100" height="707" loading="lazy"><figcaption>Calcul (temps coupé), comparaison Aperçu / GFPE en dB(C), tableau des scénarios.</figcaption></figure>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Scénario</th><th>Objet</th></tr></thead>
+    <tbody>
+      <tr><td class="k">AROME</td><td>Prévision réelle pour la date et l'heure du projet.</td></tr>
+      <tr><td class="k">Neutre, sans vent</td><td>Atmosphère homogène, référence.</td></tr>
+      <tr><td class="k">Inversion forte</td><td>Nuit claire sans vent : cas défavorable usuel pour le grave.</td></tr>
+      <tr><td class="k">Vent portant</td><td>Vent orienté vers l'habitation la plus exposée.</td></tr>
+      <tr><td class="k">Lac d'air froid</td><td>Ajouté en fond de vallée.</td></tr>
+    </tbody>
+  </table></div>
+  <p>Pour chaque scénario : niveau maximal en dB(C) et surface au-dessus de 55 dB(C).</p>
+  <div class="note"><b>Précision</b>Environ 3 dB à moins de 500 m, 5 à 10 dB à plusieurs kilomètres de nuit.</div>
+  <p>Toute modification des enceintes ou des réglages de propagation (programme, gain, hauteur des récepteurs, conditions, heure météo, sol) rend le calcul obsolète : la carte repasse sur l'aperçu et le bouton d'impact perd la mention « (GFPE) ». Les seuils, cibles et nom du projet sont sans effet.</p>
+</section>
+
+<section class="doc" id="impact">
+  <span class="num">07</span>
+  <h2>Impact</h2>
+  <figure class="shot"><img src="media/impact.webp" alt="Marge, classes d'émergence, bâtiment le plus exposé, liste des plus exposés" width="1100" height="707" loading="lazy"><figcaption>Évaluation sur le calcul GFPE.</figcaption></figure>
+  <dl class="fields">
+    <dt>Seuils d'émergence</dt><dd>En dB, libres. Par défaut 3, 5 et 10. <span class="m">Aucune réglementation n'est appliquée : seuils à fixer selon le contexte.</span></dd>
+    <dt>Résiduel rural de nuit</dt><dd>25 dB(A) par défaut. <em>Majorer près des routes</em> le relève le long des axes.</dd>
+    <dt>Mesure du résiduel</dt><dd>Valeur mesurée sur site ; remplace le modèle.</dd>
+  </dl>
+  <p><em>Évaluer l'impact</em> utilise le GFPE lorsque le bouton affiche « (GFPE) ». Résultats :</p>
+  <ul>
+    <li><b>Marge</b>, en émergence dB(A) : positive, tous les bâtiments sont sous le premier seuil ; négative, dépassement au bâtiment le plus exposé.</li>
+    <li>Bâtiments et habitants par classe d'émergence.</li>
+    <li>Bâtiment le plus exposé : niveau en façade, émergence par octave.</li>
+    <li>Liste des plus exposés, avec « Ém. A » et « Ém. C » (émergence dans le grave).</li>
+    <li>Lieux sensibles (écoles, établissements de santé) et ZNIEFF de la zone, avec le niveau reçu.</li>
+  </ul>
+</section>
+
+<section class="doc" id="dim">
+  <span class="num">08</span>
+  <h2>Dimensionnement</h2>
+  <figure class="shot"><img src="media/dim.webp" alt="Cibles dB(A) et dB(C), réponse sur le nombre de subs et de têtes" width="1100" height="707" loading="lazy"><figcaption>Cible 100 dB(A) / 120 dB(C), puis 112 dB(C).</figcaption></figure>
+  <h3>Dimensionnement inverse</h3>
+  <p>Cibles au centre de la zone public, puis <em>Calculer</em> (zone public requise). Résultat : nombre de subs et de têtes nécessaires par rapport au système actuel, puissance d'amplification, homogénéité.</p>
+  <div class="warn"><b>Limite</b>Extrapolation depuis le centre de la zone public (subs : +6 dB par doublement, têtes : +3 dB). À vérifier sur la carte après ajout des enceintes.</div>
+  <h3>Optimiseur</h3>
+  <p><em>Lancer l'optimisation</em> : positions (±60 m), orientations (pas de 15°) et montages de subs (tel quel, cardioïde, end-fire). Critère : marge au bâtiment le plus exposé, à niveau constant en zone public. Chaque candidat s'applique d'un clic ; Ctrl+Z annule.</p>
+</section>
+
+<section class="doc" id="projet">
+  <span class="num">09</span>
+  <h2>Projet</h2>
+  <figure class="shot"><img src="media/projet.webp" alt="Onglet Projet : programme, conditions, sol, végétation LiDAR, calage, exports" width="1100" height="707" loading="lazy"><figcaption>L'onglet complet.</figcaption></figure>
+  <div class="cols">
+    <dl class="fields">
+      <dt>Programme musical</dt><dd>Spectre diffusé : électro (grave appuyé), techno, drum'n'bass, rock / live, bruit rose.</dd>
+      <dt>Gain général</dt><dd>Niveau de tout le système.</dd>
+      <dt>Hauteur des récepteurs</dt><dd>1,5 m (rez-de-chaussée) ou 4 m (étage).</dd>
+      <dt>Conditions</dt><dd>Favorables (nuit) ou homogènes (jour).</dd>
+      <dt>Heure météo · Impédance du sol</dt><dd>Heure de la prévision AROME ; modèle de sol (Delany-Bazley, Miki).</dd>
+    </dl>
+    <dl class="fields">
+      <dt>Sol</dt><dd>Géologie BRGM, humidité ou neige à la date. <em>Télécharger</em> (connexion requise).</dd>
+      <dt>Végétation LiDAR HD</dt><dd>Rayon puis <em>Télécharger</em> (≈ 40 Mo par km²) : feuillage mesuré au lieu d'un forfait.</dd>
+      <dt>Calage sur mesures</dt><dd>Import CSV (lat, lon, LAeq / LCeq) ou GPX de sonomètre ; <em>Appliquer au projet</em> valide l'ajustement.</dd>
+      <dt>Exports</dt><dd>Rapport HTML (impression PDF), GeoTIFF, GeoJSON, pour l'indicateur affiché.</dd>
+    </dl>
+  </div>
+  <p><em>Enregistrer sous…</em> / <em>Ouvrir…</em> : fichiers <code>.smproj</code>. Le projet est aussi enregistré automatiquement dans le dossier de la zone.</p>
+</section>
+
+<section class="doc" id="physique">
+  <span class="num">10</span>
+  <h2>Aperçu ou GFPE</h2>
+  <p class="sub">Une habitation hors de portée sur l'aperçu, derrière un relief ou à l'arrière du système, peut recevoir un niveau élevé dans le grave.</p>
+  <div class="compare">
+    <div>
+      <h4>Aperçu</h4>
+      <ul>
+        <li>ISO 9613-2 / CNOSSOS simplifiée, par octave.</li>
+        <li>Atmosphère standard, courbure uniforme.</li>
+        <li>Relief traité comme un écran.</li>
+        <li>Instantané : implantation.</li>
+      </ul>
+    </div>
+    <div>
+      <h4>GFPE</h4>
+      <ul>
+        <li>Propagation des ondes de 25 à 200 Hz.</li>
+        <li>Relief, sol et profil météo réels.</li>
+        <li>Diffraction et réfraction calculées.</li>
+        <li>10 à 60 s : décision.</li>
+      </ul>
+    </div>
+  </div>
+  <svg class="diagram" viewBox="0 0 760 210" role="img" aria-label="Schéma : de nuit, l'air plus chaud en altitude courbe le son vers le sol par-dessus un relief">
+    <defs><marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#ff7a1a"/></marker></defs>
+    <path d="M0 190 L250 190 Q330 110 410 190 L760 190 L760 210 L0 210 Z" fill="currentColor" opacity=".12"/>
+    <rect x="60" y="160" width="22" height="30" rx="2" fill="#ff7a1a"/>
+    <path d="M82 168 Q330 -20 640 168" fill="none" stroke="#ff7a1a" stroke-width="2.5" marker-end="url(#ar)"/>
+    <path d="M82 175 Q330 40 640 175" fill="none" stroke="#ff7a1a" stroke-width="2" stroke-dasharray="5 5" opacity=".6" marker-end="url(#ar)"/>
+    <path d="M82 182 L300 150" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 4" opacity=".5"/>
+    <path d="M650 190 L650 165 L668 152 L686 165 L686 190 Z" fill="currentColor" opacity=".55"/>
+    <text x="30" y="150">système</text>
+    <text x="620" y="140">habitation à 1,8 km</text>
+    <text x="250" y="30">air plus chaud en altitude : son courbé vers le sol</text>
+    <text x="160" y="140">trajet considéré écranté par l'aperçu</text>
+  </svg>
+  <ol>
+    <li><b>Subs omnidirectionnels.</b> À 50 Hz, la longueur d'onde est d'environ 7 m : une ligne de subs émet autant vers l'arrière que vers l'avant, sauf montage cardioïde ou end-fire.</li>
+    <li><b>Diffraction.</b> Dans le grave, les ondes contournent buttes et talus. L'aperçu surestime l'atténuation.</li>
+    <li><b>Inversion de température.</b> De nuit, l'air plus chaud en altitude courbe le son vers le sol : il franchit le relief et porte loin, avec des zones de concentration. Un vent portant a le même effet.</li>
+  </ol>
+  <p>Plus la fréquence est basse, plus la météo domine. Le feuillage est sans effet sous 200 Hz. En mode GFPE, la carte combine le GFPE jusqu'à 200 Hz et l'aperçu au-delà.</p>
+  <div class="tip"><b>Méthode</b>Implanter avec l'aperçu, conclure avec le GFPE (carte P90 de préférence). Pour protéger l'arrière du système : montage cardioïde des subs, proposé et vérifié par l'optimiseur.</div>
+</section>
+
+<section class="doc" id="classement">
+  <span class="num">11</span>
+  <h2>Classement des sites</h2>
+  <ol class="steps">
+    <li><b>Criblage</b>Grille de 500 m : relief à 100 m, population carroyée INSEE (200 m), écran du relief à 63 Hz. Terrains trop pentus écartés.</li>
+    <li><b>Tri</b>Sites sans habitation à moins de « Premier voisin à » d'abord, puis niveau chez le riverain le plus exposé (paliers de 3 dB), puis nombre d'habitants exposés pondéré par le dépassement.</li>
+    <li><b>Vérification du terrain</b>Jusqu'à 80 candidats, dans l'ordre : clairière et accès. 20 sites retenus, espacés d'au moins 2 km.</li>
+    <li><b>Contrôle de nuit</b>GFPE (40 et 63 Hz, inversion, 180 directions) sur ces 20 sites, nouveau classement, 10 affichés.</li>
+  </ol>
+  <p>Un emplacement situé entre deux points de la grille peut être évalué avec <a href="#sites">Évaluer un emplacement</a>.</p>
+</section>
+
+<section class="doc" id="fichiers">
+  <span class="num">12</span>
+  <h2>Fichiers et mises à jour</h2>
+  <p class="sub"><em>Ouvrir le dossier des données</em> (sous la liste des zones, dès qu'une zone existe) ouvre ce dossier.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Système</th><th>Dossier des données</th></tr></thead>
+    <tbody>
+      <tr><td class="k">Windows</td><td><code>%APPDATA%\fr.soundmap.viewer\</code></td></tr>
+      <tr><td class="k">macOS</td><td><code>~/Library/Application Support/fr.soundmap.viewer/</code></td></tr>
+    </tbody>
+  </table></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Élément</th><th>Contenu</th></tr></thead>
+    <tbody>
+      <tr><td class="k"><code>zones/&lt;nom&gt;-&lt;id&gt;/</code></td><td>Zone téléchargée (200 à 500 Mo).</td></tr>
+      <tr><td class="k"><code>zones/…/projet.smproj</code></td><td>Projet de la zone, enregistré automatiquement.</td></tr>
+      <tr><td class="k"><code>speakers.json</code></td><td>Modèles d'enceintes personnels.</td></tr>
+      <tr><td class="k"><code>references.json</code></td><td>Sites de référence notés.</td></tr>
+      <tr><td class="k"><code>cache/</code></td><td>Tuiles et cadastre consultés. Peut être vidé.</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Partager un projet</h3>
+  <p><em>Exporter</em> (carte du projet) ou <em>Enregistrer sous…</em> (onglet Projet) produit un <code>.smproj</code>. Sur un autre poste : <em>Importer un projet…</em> ; la zone est téléchargée si elle manque.</p>
+  <h3>Mises à jour</h3>
+  <figure class="shot"><img src="media/news.webp" alt="Fenêtre des nouveautés après une mise à jour" width="1100" height="707" loading="lazy"><figcaption>Nouveautés affichées au premier lancement d'une nouvelle version.</figcaption></figure>
+  <p>Vérification au lancement. Un bandeau propose la nouvelle version : téléchargement, installation et redémarrage en un clic. Zones et projets sont conservés. Au premier lancement d'une nouvelle version, une fenêtre résume les nouveautés ; elle reste accessible par <em>Nouveautés de la version</em>, en pied de panneau.</p>
+</section>
+
+<section class="doc" id="raccourcis">
+  <span class="num">13</span>
+  <h2>Raccourcis</h2>
+  <p class="sub">Dans une zone ouverte, hors champ de saisie. Sur Mac, Ctrl = ⌘ (sauf rotation de la carte).</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Geste</th><th>Effet</th></tr></thead>
+    <tbody>
+      <tr><td class="k">Clic</td><td>Sélectionner une enceinte</td></tr>
+      <tr><td class="k"><kbd>Ctrl</kbd> / <kbd>Maj</kbd> + clic</td><td>Ajouter ou retirer de la sélection</td></tr>
+      <tr><td class="k">Double-clic</td><td>Sélectionner le bloc</td></tr>
+      <tr><td class="k"><kbd>Maj</kbd> + glisser</td><td>Sélection par cadre</td></tr>
+      <tr><td class="k">Glisser</td><td>Déplacer la sélection</td></tr>
+      <tr><td class="k">Poignée ⟳</td><td>Pivoter (<kbd>Maj</kbd> : pas de 15°)</td></tr>
+      <tr><td class="k"><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd></td><td>10 cm, dans le sens de l'écran</td></tr>
+      <tr><td class="k"><kbd>Maj</kbd> + flèche</td><td>1 m</td></tr>
+      <tr><td class="k"><kbd>Ctrl</kbd> + flèche</td><td>1 cm</td></tr>
+      <tr><td class="k"><kbd>Ctrl</kbd> + <kbd>Maj</kbd> + flèche</td><td>1 mm</td></tr>
+      <tr><td class="k"><kbd>Ctrl</kbd> + <kbd>A</kbd></td><td>Tout sélectionner</td></tr>
+      <tr><td class="k"><kbd>Ctrl</kbd> + <kbd>C</kbd> / <kbd>X</kbd> / <kbd>V</kbd></td><td>Copier / couper / coller sous la souris</td></tr>
+      <tr><td class="k"><kbd>Ctrl</kbd> + <kbd>D</kbd></td><td>Dupliquer</td></tr>
+      <tr><td class="k"><kbd>Suppr</kbd> / <kbd>⌫</kbd></td><td>Supprimer</td></tr>
+      <tr><td class="k"><kbd>Ctrl</kbd> + <kbd>Z</kbd></td><td>Annuler (100 étapes)</td></tr>
+      <tr><td class="k"><kbd>Ctrl</kbd> + <kbd>Y</kbd> · <kbd>Ctrl</kbd> + <kbd>Maj</kbd> + <kbd>Z</kbd></td><td>Rétablir</td></tr>
+      <tr><td class="k"><kbd>Échap</kbd></td><td>Désélectionner, terminer une pose</td></tr>
+      <tr><td class="k">Clic droit + glisser</td><td>Tourner et incliner la carte (aussi <kbd>Ctrl</kbd> + glisser)</td></tr>
+    </tbody>
+  </table></div>
+  <footer>
+    Outil d'aide à la décision, pas un instrument de mesure. Aucune réglementation n'est appliquée.<br>
+    Données © IGN Géoplateforme, DGFiP, INSEE, PatriNat, BRGM, Météo-France via Open-Meteo.
+  </footer>
+</section>
+</main>
+</div>
+</body>
+</html>
